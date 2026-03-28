@@ -128,28 +128,29 @@ def load_playlists(spotify_playlists=None):
         if d_name in seen_names:
             continue
             
-        if s_name in sp_name_to_id:
+        # Handle explicit IDs (avoids missing playlists or duplicates)
+        explicit_ids = {
+            "Cruise Control 🚘 NEW 2026 R&B to ride to 🚗 💨": "6PaI7gZiVU0wlBusCwYyh9",
+            "BEST NEW 2026 Conscious Hip-Hop": "593KXjedxJrSCjf6jC2RUq",
+            "NEW 2026 S3XY DRILL NO DIDDY 🍑🍆🔫 FIYAH SEXY R&B Hip-Hop Rap 💥 (updated weekly)": "4sThCBzRZyO0DY507WACHD",
+            "New Hip Hop & Rap with a Retro 2000s sound": "1c3VxlMSXinIq6NE1afSw4"
+        }
+        
+        if s_name in explicit_ids:
+            pid = explicit_ids[s_name]
+        elif s_name in sp_name_to_id:
             pid = sp_name_to_id[s_name]
-            
-            # Handle duplicate playlists - force specific IDs from "Playlists Duplicates - fixed.csv"
-            duplicate_overrides = {
-                "Cruise Control 🚘 NEW 2026 R&B to ride to 🚗 💨": "6PaI7gZiVU0wlBusCwYyh9",
-                "BEST NEW 2026 Conscious Hip-Hop": "593KXjedxJrSCjf6jC2RUq",
-                "NEW 2026 S3XY DRILL NO DIDDY 🍑🍆🔫 FIYAH SEXY R&B Hip-Hop Rap 💥 (updated weekly)": "4sThCBzRZyO0DY507WACHD"
-            }
-            
-            if s_name in duplicate_overrides:
-                pid = duplicate_overrides[s_name]
-            
-            playlist_map[s_name] = pid
-            dashboard_playlists.append({
-                "name": d_name,
-                "spotify_name": s_name,
-                "id": pid
-            })
-            seen_names.add(d_name)
         else:
             print(f"Warning: Playlist '{s_name}' not found in your Spotify library.")
+            continue
+            
+        playlist_map[s_name] = pid
+        dashboard_playlists.append({
+            "name": d_name,
+            "spotify_name": s_name,
+            "id": pid
+        })
+        seen_names.add(d_name)
 
     print(f"Loaded {len(dashboard_playlists)} matched playlists.")
 
@@ -764,5 +765,5 @@ def toggle_album_playlist():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(port=8888, debug=True)
+    app.run(port=8888, debug=False)
 
