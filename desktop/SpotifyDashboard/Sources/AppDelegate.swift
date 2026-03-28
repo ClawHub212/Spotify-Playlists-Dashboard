@@ -19,8 +19,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var isFloatOnTop: Bool {
         get {
-            // Default to true if never set
-            if UserDefaults.standard.object(forKey: "floatOnTop") == nil { return true }
+            // Default to false if never set
+            if UserDefaults.standard.object(forKey: "floatOnTop") == nil { return false }
             return UserDefaults.standard.bool(forKey: "floatOnTop")
         }
         set { UserDefaults.standard.set(newValue, forKey: "floatOnTop") }

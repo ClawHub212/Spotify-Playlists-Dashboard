@@ -16,7 +16,7 @@ app = Flask(__name__, static_folder='static')
 
 # Configuration
 CSV_FILE = "data/csv/Playlists to Display.csv"
-SCOPE = "user-read-playback-state user-library-read user-library-modify playlist-read-private playlist-read-collaborative playlist-modify-public playlist-modify-private user-read-recently-played"
+SCOPE = "user-read-playback-state user-modify-playback-state user-library-read user-library-modify playlist-read-private playlist-read-collaborative playlist-modify-public playlist-modify-private user-read-recently-played"
 
 # Spotify Auth Manager
 # We create a function or object to manage auth
@@ -455,18 +455,27 @@ def get_current_track():
         return jsonify({"error": "Not authenticated"}), 401
 
     try:
-        current = sp.current_user_playing_track()
-        if current and current['item']:
+        current = sp.current_playback()
+        if current and current.get('item'):
             track = current['item']
             is_playing = current['is_playing']
+            repeat_state = current.get('repeat_state', 'off')
         else:
-            # Fallback to recently played
-            recent = sp.current_user_recently_played(limit=1)
-            if recent and recent['items']:
-                track = recent['items'][0]['track']
-                is_playing = False
+            # Fallback to current_user_playing_track
+            current_track = sp.current_user_playing_track()
+            if current_track and current_track.get('item'):
+                track = current_track['item']
+                is_playing = current_track['is_playing']
+                repeat_state = 'off'
             else:
-                return jsonify(None)
+                # Fallback to recently played
+                recent = sp.current_user_recently_played(limit=1)
+                if recent and recent['items']:
+                    track = recent['items'][0]['track']
+                    is_playing = False
+                    repeat_state = 'off'
+                else:
+                    return jsonify(None)
         
         # Check if liked
         # current_user_saved_tracks_contains returns list of bools
@@ -486,6 +495,7 @@ def get_current_track():
             "album_cover": album_cover,
             "is_liked": is_liked,
             "is_playing": is_playing,
+            "repeat_state": repeat_state,
             "uri": track['uri']
         })
 
@@ -602,6 +612,25 @@ def get_extracted_color():
         print(f"Error extracting color: {e}")
         return jsonify({'r': 0, 'g': 0, 'b': 0, 'error': str(e)})
 
+
+@app.route('/api/toggle-repeat', methods=['POST'])
+def toggle_repeat():
+    auth_manager = get_auth_manager()
+    if not auth_manager.validate_token(auth_manager.get_cached_token()):
+        return jsonify({"error": "Not authenticated"}), 401
+    
+    data = request.json
+    state = data.get('state') # 'track' or 'off'
+    
+    if not state:
+        return jsonify({"error": "Missing state"}), 400
+        
+    try:
+        sp.repeat(state)
+        return jsonify({"success": True})
+    except Exception as e:
+        print(f"Error toggling repeat: {e}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/playlist/toggle', methods=['POST'])
 def toggle_playlist():

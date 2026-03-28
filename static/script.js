@@ -254,7 +254,9 @@ async function pollCurrentTrack() {
       if (track) {
         const idChanged = !currentTrack || currentTrack.id !== track.id;
         const statusChanged =
-          !currentTrack || currentTrack.is_playing !== track.is_playing;
+          !currentTrack || 
+          currentTrack.is_playing !== track.is_playing || 
+          currentTrack.repeat_state !== track.repeat_state;
 
         if (idChanged || statusChanged) {
           currentTrack = track;
@@ -313,6 +315,7 @@ function updateTrackInfo(track) {
   const albumCover = document.getElementById("album-cover");
   const visualizer = document.querySelector(".visualizer");
   const nothingPlayingMsg = document.getElementById("nothing-playing");
+  const repeatIcon = document.getElementById("repeat-icon");
 
   if (track) {
     // Universal: Update Album Cover
@@ -349,6 +352,60 @@ function updateTrackInfo(track) {
         nothingPlayingMsg.style.display = "none";
       }
     }
+
+    if (repeatIcon) {
+      repeatIcon.style.display = "block";
+      
+      // Update UI from track payload, but ignore if we recently clicked it (optimistic lock)
+      if (!repeatIcon.hasAttribute("data-optimistic-lock")) {
+        if (track.repeat_state === "track" || track.repeat_state === "context") {
+          repeatIcon.classList.add("active");
+        } else {
+          repeatIcon.classList.remove("active");
+        }
+      }
+      
+      // Attach click handler tracking only once
+      if (!repeatIcon.onclick) {
+        repeatIcon.onclick = async () => {
+          // Source of truth is current UI state
+          const isCurrentlyRepeating = repeatIcon.classList.contains("active");
+          const newState = isCurrentlyRepeating ? "off" : "track";
+          
+          // Apply optimistic UI update immediately
+          if (newState === "track") {
+            repeatIcon.classList.add("active");
+            if (currentTrack) currentTrack.repeat_state = "track";
+          } else {
+            repeatIcon.classList.remove("active");
+            if (currentTrack) currentTrack.repeat_state = "off";
+          }
+
+          // Lock UI from being overwritten by backend polling delays
+          repeatIcon.setAttribute("data-optimistic-lock", "true");
+          clearTimeout(repeatIcon.lockTimeout);
+          repeatIcon.lockTimeout = setTimeout(() => {
+            repeatIcon.removeAttribute("data-optimistic-lock");
+          }, 3500); // 3.5s grace period
+          
+          try {
+            await fetch("/api/toggle-repeat", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ state: newState })
+            });
+          } catch (e) {
+            console.error("Failed to toggle repeat", e);
+            // Revert UI on failure
+            if (isCurrentlyRepeating) {
+              repeatIcon.classList.add("active");
+            } else {
+              repeatIcon.classList.remove("active");
+            }
+          }
+        };
+      }
+    }
   } else {
     if (isQueue) {
       if (title) title.textContent = "Not Playing";
@@ -360,6 +417,9 @@ function updateTrackInfo(track) {
     if (visualizer) {
       visualizer.classList.remove("is-playing", "is-paused");
       visualizer.classList.add("is-hidden");
+    }
+    if (repeatIcon) {
+      repeatIcon.style.display = "none";
     }
     nothingPlayingMsg.style.display = "block";
     activePlaylistsMap.clear();

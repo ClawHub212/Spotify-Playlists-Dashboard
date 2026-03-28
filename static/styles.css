@@ -474,6 +474,38 @@ body.queue-page .app-container {
 }
 
 /* ========================================
+   Repeat Icon
+   ======================================== */
+.repeat-icon {
+  width: clamp(20px, 2.5vh, 32px);
+  height: clamp(20px, 2.5vh, 32px);
+  cursor: pointer;
+  opacity: 0.3;
+  transition: all 0.3s ease;
+  margin-right: clamp(10px, 1.5vw, 20px);
+  align-self: center;
+}
+
+.repeat-icon:hover {
+  opacity: 0.7;
+}
+
+.repeat-icon.active {
+  opacity: 1;
+}
+
+body.playlists-page .repeat-icon.active {
+  filter: drop-shadow(0 0 8px rgba(132, 255, 0, 0.6));
+}
+
+body.tracker-page .repeat-icon.active {
+  filter: drop-shadow(0 0 8px rgba(188, 19, 254, 0.6));
+}
+
+body.queue-page .repeat-icon.active {
+  filter: drop-shadow(0 0 8px rgba(255, 140, 0, 0.6));
+}
+/* ========================================
    Waveform Visualizer
    ======================================== */
 .visualizer {

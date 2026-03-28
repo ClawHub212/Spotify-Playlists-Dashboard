@@ -58,6 +58,9 @@ class MainWindowController: NSObject {
 
         // Transparent background to match the app aesthetic
         webView.setValue(false, forKey: "drawsBackground")
+        
+        // Custom User Agent to ensure reCAPTCHA works without blocking WKWebView
+        webView.customUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
 
         super.init()
 
@@ -128,16 +131,25 @@ extension MainWindowController: WKNavigationDelegate {
             return
         }
 
-        // Handle Spotify OAuth callback - allow it to load in the webview
-        if url.host == "127.0.0.1" || url.host == "localhost" {
+        // Allow internal schemes often used by iframes (e.g. reCAPTCHA)
+        if url.scheme == "about" || url.scheme == "data" || url.scheme == "blob" {
             decisionHandler(.allow)
             return
         }
 
-        // Spotify auth URLs - allow in webview
-        if url.host == "accounts.spotify.com" {
-            decisionHandler(.allow)
-            return
+        // Handle Spotify OAuth callback and localhost
+        if let host = url.host {
+            if host == "127.0.0.1" || host == "localhost" {
+                decisionHandler(.allow)
+                return
+            }
+            
+            // Allow Spotify auth architecture, social logins, and captcha
+            let allowedDomains = ["spotify.com", "google.com", "recaptcha", "gstatic.com", "facebook.com", "apple.com"]
+            if allowedDomains.contains(where: { host.contains($0) }) {
+                decisionHandler(.allow)
+                return
+            }
         }
 
         // External URLs - open in default browser
