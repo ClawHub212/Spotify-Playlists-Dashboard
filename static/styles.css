@@ -148,6 +148,33 @@ body {
   font-weight: 500;
   margin-top: 0;
 }
+.artist-row {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.play-count {
+  font-family: "JetBrains Mono", var(--font-heading), monospace;
+  color: #a0a0a0;
+  font-size: clamp(0.6rem, 0.7vw, 0.85rem);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 2px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
 
 .nothing-playing {
   font-family: var(--font-heading);

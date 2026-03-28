@@ -481,6 +481,8 @@ def get_current_track():
         # current_user_saved_tracks_contains returns list of bools
         is_liked = sp.current_user_saved_tracks_contains([track['id']])[0]
         
+        popularity = track.get('popularity', 0)
+        
         # Get album info
         album_name = track['album']['name'] if track.get('album') else 'Unknown Album'
         album_cover = track['album']['images'][0]['url'] if track.get('album') and track['album'].get('images') else None
@@ -496,6 +498,7 @@ def get_current_track():
             "is_liked": is_liked,
             "is_playing": is_playing,
             "repeat_state": repeat_state,
+            "popularity": popularity,
             "uri": track['uri']
         })
 
