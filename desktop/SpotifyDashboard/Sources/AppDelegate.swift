@@ -12,6 +12,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var hotkeyManager: HotkeyManager!
     var loadingViewController: LoadingViewController?
 
+    // Internal shortcut state (default Cmd+S: keyCode 1, modifiers 256)
+    var internalSidebarKeyCode: UInt32 = 1
+    var internalSidebarModifiers: UInt32 = 256
+
     private var isMenuBarMode: Bool {
         get { UserDefaults.standard.bool(forKey: "menuBarMode") }
         set { UserDefaults.standard.set(newValue, forKey: "menuBarMode") }
@@ -51,7 +55,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         hotkeyManager.loadAndRegisterAll()
 
         // Set up settings window controller
-        settingsWindowController = SettingsWindowController(hotkeyManager: hotkeyManager)
+        settingsWindowController = SettingsWindowController(hotkeyManager: hotkeyManager, webView: webViewController.webView)
         settingsWindowController.delegate = self
 
         // Apply Dock/Menu Bar mode
@@ -74,8 +78,31 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // Build the app menu
         buildMenu()
+        loadInternalSidebarShortcut()
+
+        // Intercept internal shortcuts cleanly
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self = self else { return event }
+            let carbonMods = HotkeyManager.cocoaToCarbonModifiers(event.modifierFlags.intersection([.command, .option, .control, .shift]))
+            
+            if UInt32(event.keyCode) == self.internalSidebarKeyCode && carbonMods == self.internalSidebarModifiers {
+                self.webViewController.webView.evaluateJavaScript("toggleSidebar()", completionHandler: nil)
+                return nil // Swallow event
+            }
+            return event
+        }
+    }
+
+    func loadInternalSidebarShortcut() {
+        if let dict = UserDefaults.standard.dictionary(forKey: "internalSidebarShortcut") {
+            if let kc = dict["keyCode"] as? NSNumber { self.internalSidebarKeyCode = kc.uint32Value }
+            if let mods = dict["modifiers"] as? NSNumber { self.internalSidebarModifiers = mods.uint32Value }
+        } else {
+            // Default ⌘S
+            self.internalSidebarKeyCode = 1
+            self.internalSidebarModifiers = 256
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

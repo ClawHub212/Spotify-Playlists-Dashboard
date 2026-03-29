@@ -51,6 +51,40 @@
           <!-- Playlist Items will be injected here by JS -->
         </div>
       </main>
+
+      <!-- Artist Release Sidebar -->
+      <aside id="artist-sidebar" class="artist-sidebar" aria-label="Artist Latest Release">
+        <button id="sidebar-toggle" class="sidebar-toggle" aria-label="Toggle sidebar">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="15 18 9 12 15 6"></polyline>
+          </svg>
+        </button>
+        <div class="sidebar-content" id="sidebar-content">
+          <div class="sidebar-artwork-wrap">
+            <img id="sidebar-artwork" class="sidebar-artwork" src="" alt="Album/EP Artwork" />
+            <div class="sidebar-release-badge" id="sidebar-release-badge">ALBUM</div>
+          </div>
+          <div class="sidebar-meta">
+            <h3 class="sidebar-release-name" id="sidebar-release-name">—</h3>
+            <p class="sidebar-artist-name" id="sidebar-artist-name">—</p>
+            <span class="sidebar-release-date" id="sidebar-release-date">—</span>
+          </div>
+          <div class="sidebar-actions">
+            <button id="sidebar-library-btn" class="sidebar-action-btn library-btn" aria-label="Add to library">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
+              </svg>
+              <span id="library-btn-text">Save to Library</span>
+            </button>
+          </div>
+          <div class="sidebar-queue-section">
+            <div class="sidebar-queue-label">ADD TO QUEUE</div>
+            <div class="sidebar-queue-list" id="sidebar-queue-list">
+              <!-- Queue playlists injected by JS -->
+            </div>
+          </div>
+        </div>
+      </aside>
     </div>
 
     <script src="script.js"></script>

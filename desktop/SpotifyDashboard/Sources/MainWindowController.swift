@@ -38,7 +38,7 @@ enum DashboardPage: String, CaseIterable {
 class MainWindowController: NSObject {
 
     private let window: NSWindow
-    private let webView: WKWebView
+    let webView: WKWebView
     private(set) var currentPage: DashboardPage = .playlists
 
     private let baseURL = "http://127.0.0.1:8888"

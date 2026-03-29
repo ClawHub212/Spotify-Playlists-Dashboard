@@ -270,6 +270,11 @@ async function pollCurrentTrack() {
             } catch (err) {
               console.error("Error checking playlists:", err);
             }
+
+            // If sidebar is already open, update it for the new track
+            if (typeof sidebarState !== "undefined" && sidebarState.isOpen) {
+              showArtistSidebar(track);
+            }
           }
         }
       } else {
@@ -335,7 +340,7 @@ function updateTrackInfo(track) {
 
       if (playCount) {
         if (track.popularity !== undefined) {
-          playCount.textContent = track.popularity;
+          playCount.textContent = track.popularity >= 40 ? `${track.popularity} ⚡️` : track.popularity;
           playCount.style.display = "inline-flex";
         } else {
           playCount.style.display = "none";
@@ -594,11 +599,18 @@ async function togglePlaylist(playlist) {
       else activePlaylistsMap.add(playlist.id);
       renderPlaylists();
       alert("Failed to update playlist: " + data.error);
-    } else if (isQueue && data.track_count) {
-      // Show success message with track count for album operations
-      console.log(
-        `${action === "add" ? "Added" : "Removed"} ${data.track_count} tracks from album`,
-      );
+    } else {
+      if (isQueue && data.track_count) {
+        // Show success message with track count for album operations
+        console.log(
+          `${action === "add" ? "Added" : "Removed"} ${data.track_count} tracks from album`,
+        );
+      }
+
+      // Trigger sidebar on ADD only (Playlists & Tracker pages)
+      if (action === "add" && !isQueue && currentTrack) {
+        showArtistSidebar(currentTrack);
+      }
     }
   } catch (e) {
     console.error("Error toggling:", e);
@@ -608,6 +620,368 @@ async function togglePlaylist(playlist) {
     alert("Network error.");
   }
 }
+
+// ============================================
+// Artist Release Sidebar
+// ============================================
+let sidebarState = {
+  isOpen: false,
+  currentRelease: null,    // The fetched release data
+  queuePlaylists: [],      // Queue playlists for the sidebar
+  queueActiveMap: new Set(), // Active queue playlist IDs for sidebar album
+  artistCache: {},         // Cache: artistName -> release data
+  isLibrarySaved: false,
+};
+
+/**
+ * Initialize sidebar toggle and event listeners
+ */
+function initSidebar() {
+  const sidebar = document.getElementById("artist-sidebar");
+  const toggleBtn = document.getElementById("sidebar-toggle");
+  if (!sidebar || !toggleBtn) return;
+
+  toggleBtn.addEventListener("click", () => {
+    toggleSidebar();
+  });
+
+  // Fetch queue playlists for sidebar use
+  fetchQueuePlaylistsForSidebar();
+}
+
+/**
+ * Fetch queue playlists from the API for use in the sidebar.
+ * Retries if backend is still loading, same pattern as fetchPlaylists().
+ */
+async function fetchQueuePlaylistsForSidebar() {
+  try {
+    const res = await fetch("/api/queue-playlists");
+    if (!res.ok) return;
+
+    const playlists = await res.json();
+    const loadingState = res.headers.get("X-Loading-State");
+
+    if (playlists.length === 0 && loadingState === "loading") {
+      // Backend still warming up — retry in 2s
+      setTimeout(fetchQueuePlaylistsForSidebar, 2000);
+      return;
+    }
+
+    sidebarState.queuePlaylists = playlists;
+  } catch (e) {
+    console.error("Error fetching queue playlists for sidebar:", e);
+  }
+}
+
+/**
+ * Toggle sidebar open/closed
+ */
+function toggleSidebar() {
+  const sidebar = document.getElementById("artist-sidebar");
+  if (!sidebar) return;
+
+  // If opening, ensure data is loaded for the current track
+  if (!sidebarState.isOpen) {
+    if (typeof currentTrack !== "undefined" && currentTrack) {
+      showArtistSidebar(currentTrack);
+      return;
+    } else {
+      sidebarState.isOpen = true;
+      sidebar.classList.add("open");
+      document.querySelector(".playlist-section")?.classList.add("sidebar-open");
+    }
+  } else {
+    // Closing
+    sidebarState.isOpen = false;
+    sidebar.classList.remove("open");
+    document.querySelector(".playlist-section")?.classList.remove("sidebar-open");
+  }
+}
+
+/**
+ * Show sidebar with artist's latest release
+ */
+async function showArtistSidebar(track) {
+  const sidebar = document.getElementById("artist-sidebar");
+  if (!sidebar) return;
+
+  // Get first artist name (handle comma-separated)
+  const artistName = track.artist.split(",")[0].trim();
+
+  // Check cache first
+  if (sidebarState.artistCache[artistName]) {
+    populateSidebar(sidebarState.artistCache[artistName]);
+    if (!sidebarState.isOpen) {
+      sidebarState.isOpen = true;
+      sidebar.classList.add("open");
+    }
+    return;
+  }
+
+  // Show loading state
+  const content = document.getElementById("sidebar-content");
+  if (content) content.classList.add("sidebar-loading");
+
+  // Open sidebar
+  if (!sidebarState.isOpen) {
+    sidebarState.isOpen = true;
+    sidebar.classList.add("open");
+    document.querySelector(".playlist-section")?.classList.add("sidebar-open");
+  }
+
+  try {
+    const res = await fetch(`/api/artist-latest-release?artist_name=${encodeURIComponent(artistName)}`);
+    if (!res.ok) {
+      const errData = await res.json();
+      console.warn("Failed to fetch artist latest release:", errData.error);
+      if (content) content.classList.remove("sidebar-loading");
+      return;
+    }
+
+    const release = await res.json();
+    sidebarState.artistCache[artistName] = release;
+    populateSidebar(release);
+
+  } catch (e) {
+    console.error("Error fetching artist release:", e);
+  } finally {
+    if (content) content.classList.remove("sidebar-loading");
+  }
+}
+
+/**
+ * Populate sidebar UI with release data
+ */
+async function populateSidebar(release) {
+  sidebarState.currentRelease = release;
+
+  // Artwork
+  const artwork = document.getElementById("sidebar-artwork");
+  if (artwork && release.artwork) {
+    artwork.src = release.artwork;
+    artwork.alt = `${release.name} artwork`;
+  }
+
+  // Badge
+  const badge = document.getElementById("sidebar-release-badge");
+  if (badge) badge.textContent = release.type || "ALBUM";
+
+  // Meta
+  const releaseName = document.getElementById("sidebar-release-name");
+  if (releaseName) releaseName.textContent = release.name || "—";
+
+  const artistName = document.getElementById("sidebar-artist-name");
+  if (artistName) artistName.textContent = release.artist_name || "—";
+
+  const releaseDate = document.getElementById("sidebar-release-date");
+  if (releaseDate) releaseDate.textContent = release.formatted_date ? `Released ${release.formatted_date}` : "—";
+
+  // Check library status
+  await checkAlbumLibraryStatus(release.id);
+
+  // Ensure queue playlists are loaded before rendering
+  if (sidebarState.queuePlaylists.length === 0) {
+    await fetchQueuePlaylistsForSidebar();
+  }
+
+  // Render queue items
+  renderSidebarQueue();
+
+  // Wire up library button
+  setupLibraryButton(release.id);
+}
+
+/**
+ * Check if album is in user's library
+ */
+async function checkAlbumLibraryStatus(albumId) {
+  try {
+    const res = await fetch(`/api/check-album-library?album_id=${encodeURIComponent(albumId)}`);
+    if (res.ok) {
+      const data = await res.json();
+      sidebarState.isLibrarySaved = data.is_saved || false;
+      updateLibraryButtonUI();
+    }
+  } catch (e) {
+    console.error("Error checking album library status:", e);
+  }
+}
+
+/**
+ * Update which queue playlists contain the current sidebar album
+ */
+async function checkSidebarQueueStatus(albumId) {
+  sidebarState.queueActiveMap.clear();
+
+  // We need to check if the album's tracks exist in queue playlists
+  // Use the existing check-playlists endpoint with album tracks
+  // For efficiency, we'll just check the first track of the album as a proxy
+  // This is imperfect but avoids excessive API calls
+  try {
+    // We don't have a direct "check album in playlist" endpoint,
+    // so we skip auto-checking for now and let the user toggle manually
+    // The UI will start with all queue items inactive
+  } catch (e) {
+    console.error("Error checking sidebar queue status:", e);
+  }
+}
+
+/**
+ * Update the library button UI based on state
+ */
+function updateLibraryButtonUI() {
+  const btn = document.getElementById("sidebar-library-btn");
+  const btnText = document.getElementById("library-btn-text");
+  if (!btn || !btnText) return;
+
+  if (sidebarState.isLibrarySaved) {
+    btn.classList.add("saved");
+    btnText.textContent = "In Library";
+  } else {
+    btn.classList.remove("saved");
+    btnText.textContent = "Save to Library";
+  }
+}
+
+/**
+ * Set up library button click handler
+ */
+function setupLibraryButton(albumId) {
+  const btn = document.getElementById("sidebar-library-btn");
+  if (!btn) return;
+
+  // Remove old handler by cloning
+  const newBtn = btn.cloneNode(true);
+  btn.parentNode.replaceChild(newBtn, btn);
+
+  newBtn.addEventListener("click", async () => {
+    const action = sidebarState.isLibrarySaved ? "remove" : "add";
+
+    // Optimistic update
+    sidebarState.isLibrarySaved = !sidebarState.isLibrarySaved;
+    updateLibraryButtonUI();
+
+    try {
+      const res = await fetch("/api/album-library", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ album_id: albumId, action }),
+      });
+
+      const data = await res.json();
+      if (!data.success) {
+        // Revert
+        sidebarState.isLibrarySaved = !sidebarState.isLibrarySaved;
+        updateLibraryButtonUI();
+        console.error("Failed to toggle library:", data.error);
+      }
+    } catch (e) {
+      // Revert
+      sidebarState.isLibrarySaved = !sidebarState.isLibrarySaved;
+      updateLibraryButtonUI();
+      console.error("Error toggling album library:", e);
+    }
+  });
+}
+
+/**
+ * Render queue playlist items in the sidebar
+ */
+function renderSidebarQueue() {
+  const list = document.getElementById("sidebar-queue-list");
+  if (!list) return;
+  list.innerHTML = "";
+
+  sidebarState.queuePlaylists.forEach((qp) => {
+    if (qp.is_divider) {
+      const divider = document.createElement("div");
+      divider.className = "sidebar-queue-divider";
+      list.appendChild(divider);
+      return;
+    }
+
+    const isActive = sidebarState.queueActiveMap.has(qp.id);
+
+    const item = document.createElement("div");
+    item.className = `sidebar-queue-item ${isActive ? "active" : ""}`;
+    item.onclick = () => toggleSidebarQueueItem(qp);
+
+    const nameSpan = document.createElement("span");
+    nameSpan.className = "sidebar-queue-name";
+    nameSpan.textContent = qp.name;
+
+    const check = document.createElement("div");
+    check.className = "sidebar-queue-check";
+    check.innerHTML = '<svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>';
+
+    item.appendChild(nameSpan);
+    item.appendChild(check);
+    list.appendChild(item);
+  });
+}
+
+/**
+ * Toggle album in a queue playlist from the sidebar
+ */
+async function toggleSidebarQueueItem(queuePlaylist) {
+  if (!sidebarState.currentRelease) return;
+
+  const albumId = sidebarState.currentRelease.id;
+  const isActive = sidebarState.queueActiveMap.has(queuePlaylist.id);
+  const action = isActive ? "remove" : "add";
+
+  // Optimistic update
+  if (action === "add") {
+    sidebarState.queueActiveMap.add(queuePlaylist.id);
+    // Copy Spotify playlist name to clipboard on add (mirrors Queue page behavior)
+    if (queuePlaylist.spotify_name) {
+      navigator.clipboard.writeText(queuePlaylist.spotify_name).catch((err) => {
+        console.error("Failed to copy playlist name:", err);
+      });
+    }
+  } else {
+    sidebarState.queueActiveMap.delete(queuePlaylist.id);
+  }
+  renderSidebarQueue();
+
+  try {
+    const res = await fetch("/api/playlist/toggle-album", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        playlist_id: queuePlaylist.id,
+        album_id: albumId,
+        action: action,
+      }),
+    });
+
+    const data = await res.json();
+    if (!data.success) {
+      // Revert
+      if (action === "add") sidebarState.queueActiveMap.delete(queuePlaylist.id);
+      else sidebarState.queueActiveMap.add(queuePlaylist.id);
+      renderSidebarQueue();
+      console.error("Failed to toggle queue album:", data.error);
+    } else {
+      console.log(`Sidebar: ${action === "add" ? "Added" : "Removed"} ${data.track_count || "?"} tracks from album in queue`);
+    }
+  } catch (e) {
+    // Revert
+    if (action === "add") sidebarState.queueActiveMap.delete(queuePlaylist.id);
+    else sidebarState.queueActiveMap.add(queuePlaylist.id);
+    renderSidebarQueue();
+    console.error("Error toggling sidebar queue:", e);
+  }
+}
+
+// Initialize sidebar on DOM ready (for playlists and tracker pages only)
+document.addEventListener("DOMContentLoaded", () => {
+  const isQueue = document.body.classList.contains("queue-page");
+  if (!isQueue) {
+    initSidebar();
+  }
+});
+
 
 // Fade Animation Handling
 document.addEventListener("visibilitychange", () => {

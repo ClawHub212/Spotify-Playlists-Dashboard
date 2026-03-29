@@ -764,6 +764,169 @@ def toggle_album_playlist():
         print(f"Error toggling album in playlist: {e}")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/artist-latest-release')
+def get_artist_latest_release():
+    """Get the most recent Album or EP from an artist.
+    Query param: artist_name - the name of the artist (used to search for their Spotify ID)
+    Returns the most recent album_group='album' or 'single' (which includes EPs) release.
+    """
+    artist_name = request.args.get('artist_name')
+    if not artist_name:
+        return jsonify({"error": "Missing artist_name"}), 400
+
+    auth_manager = get_auth_manager()
+    if not auth_manager.validate_token(auth_manager.get_cached_token()):
+        return jsonify({"error": "Not authenticated"}), 401
+
+    try:
+        # Search for the artist to get their Spotify ID
+        search_results = sp.search(q=f'artist:"{artist_name}"', type='artist', limit=5)
+        artists = search_results.get('artists', {}).get('items', [])
+        
+        if not artists:
+            return jsonify({"error": f"Artist '{artist_name}' not found"}), 404
+        
+        # Find exact match or best match
+        artist_id = None
+        for a in artists:
+            if a['name'].lower() == artist_name.lower():
+                artist_id = a['id']
+                break
+        if not artist_id:
+            artist_id = artists[0]['id']  # fallback to top result
+        
+        # Fetch albums (album_type=album includes full albums)
+        albums_result = sp.artist_albums(artist_id, album_type='album', limit=10, country='US')
+        albums = albums_result.get('items', [])
+        
+        # Fetch singles/EPs (album_type=single includes EPs and singles)
+        singles_result = sp.artist_albums(artist_id, album_type='single', limit=10, country='US')
+        singles = singles_result.get('items', [])
+        
+        # Filter: only keep actual EPs (total_tracks > 3) or albums
+        # We need to fetch full details to get total_tracks for singles
+        ep_candidates = []
+        for s in singles:
+            # Spotify marks EPs as 'single' album_type, but they typically have more tracks
+            # We'll fetch the full album details to check total_tracks
+            try:
+                full_album = sp.album(s['id'])
+                if full_album.get('total_tracks', 0) >= 4 or full_album.get('album_type') == 'ep':
+                    ep_candidates.append(full_album)
+            except:
+                pass
+        
+        # Combine albums and EPs, sort by release date descending
+        all_releases = []
+        
+        for album in albums:
+            release_date = album.get('release_date', '1900-01-01')
+            all_releases.append({
+                'id': album['id'],
+                'name': album['name'],
+                'type': 'Album',
+                'release_date': release_date,
+                'artwork': album['images'][0]['url'] if album.get('images') else None,
+                'total_tracks': album.get('total_tracks', 0),
+                'uri': album.get('uri', '')
+            })
+        
+        for ep in ep_candidates:
+            release_date = ep.get('release_date', '1900-01-01')
+            all_releases.append({
+                'id': ep['id'],
+                'name': ep['name'],
+                'type': 'EP',
+                'release_date': release_date,
+                'artwork': ep['images'][0]['url'] if ep.get('images') else None,
+                'total_tracks': ep.get('total_tracks', 0),
+                'uri': ep.get('uri', '')
+            })
+        
+        if not all_releases:
+            return jsonify({"error": "No albums or EPs found for this artist"}), 404
+        
+        # Sort by release date descending (most recent first)
+        all_releases.sort(key=lambda x: x['release_date'], reverse=True)
+        
+        latest = all_releases[0]
+        
+        # Format release_date to MM-DD-YY
+        raw_date = latest['release_date']
+        try:
+            if len(raw_date) == 10:  # YYYY-MM-DD
+                parts = raw_date.split('-')
+                formatted_date = f"{parts[1]}-{parts[2]}-{parts[0][2:]}"
+            elif len(raw_date) == 7:  # YYYY-MM
+                parts = raw_date.split('-')
+                formatted_date = f"{parts[1]}-01-{parts[0][2:]}"
+            else:  # YYYY
+                formatted_date = f"01-01-{raw_date[2:]}"
+        except:
+            formatted_date = raw_date
+        
+        latest['formatted_date'] = formatted_date
+        latest['artist_name'] = artist_name
+        
+        return jsonify(latest)
+
+    except spotipy.exceptions.SpotifyException as e:
+        if e.http_status == 429:
+            retry_after = int(e.headers.get('Retry-After', 5))
+            return jsonify({"error": "Rate limit", "retry_after": retry_after}), 429
+        print(f"Spotify error getting artist releases: {e}")
+        return jsonify({"error": str(e)}), 500
+    except Exception as e:
+        print(f"Error getting artist latest release: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/check-album-library')
+def check_album_library():
+    """Check if an album is saved in the user's library"""
+    album_id = request.args.get('album_id')
+    if not album_id:
+        return jsonify({"error": "Missing album_id"}), 400
+
+    auth_manager = get_auth_manager()
+    if not auth_manager.validate_token(auth_manager.get_cached_token()):
+        return jsonify({"error": "Not authenticated"}), 401
+
+    try:
+        result = sp.current_user_saved_albums_contains([album_id])
+        return jsonify({"is_saved": result[0] if result else False})
+    except Exception as e:
+        print(f"Error checking album library status: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/album-library', methods=['POST'])
+def toggle_album_library():
+    """Add or remove an album from the user's library"""
+    data = request.json
+    album_id = data.get('album_id')
+    action = data.get('action')  # 'add' or 'remove'
+    
+    if not all([album_id, action]):
+        return jsonify({"error": "Missing data"}), 400
+
+    auth_manager = get_auth_manager()
+    if not auth_manager.validate_token(auth_manager.get_cached_token()):
+        return jsonify({"error": "Not authenticated"}), 401
+
+    try:
+        if action == 'add':
+            sp.current_user_saved_albums_add([album_id])
+            return jsonify({"success": True, "message": "Album added to library"})
+        elif action == 'remove':
+            sp.current_user_saved_albums_delete([album_id])
+            return jsonify({"success": True, "message": "Album removed from library"})
+        else:
+            return jsonify({"error": "Invalid action"}), 400
+    except Exception as e:
+        print(f"Error toggling album library: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == '__main__':
     app.run(port=8888, debug=False)
-

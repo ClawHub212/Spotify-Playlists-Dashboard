@@ -1,4 +1,5 @@
 import Cocoa
+import WebKit
 
 protocol SettingsDelegate: AnyObject {
     func settingsDidChangeAppMode(menuBarMode: Bool)
@@ -9,13 +10,16 @@ class SettingsWindowController {
 
     private var window: NSWindow?
     private let hotkeyManager: HotkeyManager
+    private weak var webView: WKWebView?
     weak var delegate: SettingsDelegate?
 
     private var recorderViews: [DashboardPage: ShortcutRecorderView] = [:]
+    private var sidebarRecorderView: ShortcutRecorderView?
     private var floatOnTopToggle: NSSwitch?
 
-    init(hotkeyManager: HotkeyManager) {
+    init(hotkeyManager: HotkeyManager, webView: WKWebView?) {
         self.hotkeyManager = hotkeyManager
+        self.webView = webView
     }
 
     func showWindow() {
@@ -25,7 +29,7 @@ class SettingsWindowController {
         }
 
         let win = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 400),
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 520),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -171,6 +175,71 @@ class SettingsWindowController {
         explainLabel.maximumNumberOfLines = 2
         explainLabel.frame = NSRect(x: padding, y: yOffset, width: 420, height: 32)
         container.addSubview(explainLabel)
+
+        // ─────────────────────────────────────────
+        // Internal Shortcuts section
+        // ─────────────────────────────────────────
+        yOffset -= 24
+        let divider2 = NSBox(frame: NSRect(x: padding, y: yOffset, width: container.bounds.width - padding * 2, height: 1))
+        divider2.boxType = .separator
+        container.addSubview(divider2)
+
+        yOffset -= 16
+        yOffset -= 24
+        let internalTitle = makeLabel("Internal Shortcuts", size: 16, bold: true)
+        internalTitle.frame = NSRect(x: padding, y: yOffset, width: 300, height: 24)
+        container.addSubview(internalTitle)
+
+        yOffset -= 10
+        let internalSubtitle = makeLabel("Active only when this window has focus", size: 12, bold: false)
+        internalSubtitle.textColor = NSColor.secondaryLabelColor
+        internalSubtitle.frame = NSRect(x: padding, y: yOffset, width: 400, height: 16)
+        container.addSubview(internalSubtitle)
+
+        yOffset -= 12
+        yOffset -= rowHeight
+
+        // Sidebar toggle row
+        let sidebarLabel = makeLabel("Toggle Sidebar", size: 14, bold: false)
+        sidebarLabel.frame = NSRect(x: padding, y: yOffset + 4, width: 120, height: 22)
+        container.addSubview(sidebarLabel)
+
+        let sidebarRecorder = ShortcutRecorderView(frame: NSRect(x: 150, y: yOffset + 2, width: 180, height: 28))
+        sidebarRecorder.autoresizingMask = []
+
+        // Load current binding label from localStorage
+        updateSidebarRecorderDisplay(sidebarRecorder)
+
+        sidebarRecorder.onShortcutRecorded = { [weak self] keyCode, modifiers, displayString in
+            let shortcutData: [String: Any] = [
+                "keyCode": Int(keyCode),
+                "modifiers": Int(modifiers),
+                "displayString": displayString
+            ]
+            UserDefaults.standard.set(shortcutData, forKey: "internalSidebarShortcut")
+            (NSApp.delegate as? AppDelegate)?.loadInternalSidebarShortcut()
+        }
+
+        container.addSubview(sidebarRecorder)
+        self.sidebarRecorderView = sidebarRecorder
+
+        // Clear button
+        let sidebarClearBtn = NSButton(frame: NSRect(x: 345, y: yOffset + 2, width: 60, height: 28))
+        sidebarClearBtn.title = "Clear"
+        sidebarClearBtn.bezelStyle = .rounded
+        sidebarClearBtn.target = self
+        sidebarClearBtn.action = #selector(clearSidebarShortcut)
+        container.addSubview(sidebarClearBtn)
+    }
+
+    /// Refresh the sidebar recorder's display from localStorage
+    private func updateSidebarRecorderDisplay(_ recorder: ShortcutRecorderView) {
+        if let dict = UserDefaults.standard.dictionary(forKey: "internalSidebarShortcut"),
+           let display = dict["displayString"] as? String {
+            recorder.setDisplayString(display)
+        } else {
+            recorder.setDisplayString("\u{2318}S")
+        }
     }
 
     // MARK: - Actions
@@ -181,6 +250,13 @@ class SettingsWindowController {
 
         hotkeyManager.unregister(page: page)
         recorderViews[page]?.clearShortcut()
+    }
+
+    @objc private func clearSidebarShortcut() {
+        // Reset to default ⌘S
+        UserDefaults.standard.removeObject(forKey: "internalSidebarShortcut")
+        (NSApp.delegate as? AppDelegate)?.loadInternalSidebarShortcut()
+        sidebarRecorderView?.setDisplayString("\u{2318}S")
     }
 
     @objc private func toggleAppMode(_ sender: NSSwitch) {
