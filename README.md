@@ -1,15 +1,11 @@
 # 🎵📊 Spotify Playlist Dashboard
 
-![Spotify Playlist Dashboard Banner](docs/mockups/banner.png)
 
-> A high-fidelity, local web dashboard and native macOS wrapper to seamlessly manage Spotify playlists, queue albums, and track your favorite artists.
+> Optimized for Hip Hop DJs, this is a local web dashboard and native macOS app to seamlessly manage your Spotify playlists, queue albums, and track your favorite artists.
 
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)]()
 [![Version](https://img.shields.io/badge/Version-1.0.0-orange.svg)]()
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
-
-Transform your music management workflow with real-time tracking, dynamic aesthetics, and batch playlist operations.
 
 ---
 
@@ -102,25 +98,6 @@ Configure which playlists appear on the dashboard by editing the CSV files in `d
 
 Contributions are welcome! Whether you're fixing bugs, adding features, or improving documentation — your help makes this project better for everyone 🙌🏾
 
-**Quick Start for Contributors:**
-
-```bash
-# Fork and clone the repository
-git clone https://github.com/<USERNAME>/<REPO>.git
-cd <REPO>
-
-# Create a feature branch
-git checkout -b feature/your-feature-name
-
-# Make your changes and test them
-
-# Commit and push
-git commit -m "Add: description of your changes"
-git push origin feature/your-feature-name
-
-# Open a Pull Request on GitHub
-```
-
 ---
 
 ## 📚 Additional Resources
@@ -128,17 +105,6 @@ git push origin feature/your-feature-name
 - **[Python Spotipy Docs](https://spotipy.readthedocs.io/)** — Spotify Web API Python library
 - **[Spotify Web API](https://developer.spotify.com/documentation/web-api/)** — Official reference
 
----
-
-## 🐛 Issues & Support
-
-Encountered a problem or have a suggestion?
-
-- **Bug Reports**: [Open an issue](https://github.com/<USERNAME>/<REPO>/issues/new?template=bug_report.md)
-- **Feature Requests**: [Request a feature](https://github.com/<USERNAME>/<REPO>/issues/new?template=feature_request.md)
-
----
-
 <div align="center">
-  <sub>Built with ❤️ for the music curator community & stay organized ✌🏾</sub>
+  <sub>Built with ❤️ for the Music Curator community</sub>
 </div>
