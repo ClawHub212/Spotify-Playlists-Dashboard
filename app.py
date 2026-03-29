@@ -820,6 +820,8 @@ def get_artist_latest_release():
         all_releases = []
         
         for album in albums:
+            if 'deluxe' in album.get('name', '').lower():
+                continue
             release_date = album.get('release_date', '1900-01-01')
             all_releases.append({
                 'id': album['id'],
@@ -832,6 +834,8 @@ def get_artist_latest_release():
             })
         
         for ep in ep_candidates:
+            if 'deluxe' in ep.get('name', '').lower():
+                continue
             release_date = ep.get('release_date', '1900-01-01')
             all_releases.append({
                 'id': ep['id'],
