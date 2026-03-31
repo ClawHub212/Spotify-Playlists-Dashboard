@@ -1,5 +1,5 @@
 import os
-import csv
+import json
 import time
 import threading
 from flask import Flask, jsonify, request, send_from_directory, redirect, session
@@ -15,61 +15,122 @@ load_dotenv()
 app = Flask(__name__, static_folder='static')
 
 # Configuration
-CSV_FILE = "data/csv/Playlists to Display.csv"
+CONFIG_FILE = "config.json"
 SCOPE = "user-read-playback-state user-modify-playback-state user-library-read user-library-modify playlist-read-private playlist-read-collaborative playlist-modify-public playlist-modify-private user-read-recently-played"
 
 # Spotify Auth Manager
-# We create a function or object to manage auth
 def get_auth_manager():
     return SpotifyOAuth(scope=SCOPE, open_browser=False)
 
 sp = spotipy.Spotify(auth_manager=get_auth_manager(), requests_timeout=10, status_retries=0, retries=0)
 
-# Global Cache for Playlist IDs
-# Map: "Spotify Playlist Name" -> Playlist ID
-playlist_map = {}
-# List of dicts for frontend: { "name": "Dashboard Name", "spotify_name": "Spotify Playlist Name", "id": "..." }
+# Global state populated from config.json
+app_config = {}                  # The loaded config dict
+page_playlists = {}              # page_id -> list of resolved playlist dicts
+playlist_tracks_cache = {}       # Playlist ID -> Set of Track URIs
+
+# Backward-compat aliases (populated after config load)
 dashboard_playlists = []
-# Cache for Playlist Tracks: Playlist ID -> Set of Track URIs
-playlist_tracks_cache = {}
+tracker_playlists = []
+queue_playlists = []
 
 # Loading state: tracks whether initial playlist load is still in progress
-# "loading" = still fetching, "done" = finished (success or failure)
 loading_state = "loading"
 
-def populate_playlist_cache():
+
+def load_config():
+    """Load config.json. Returns the parsed dict or empty dict on error."""
+    global app_config
+    try:
+        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+            app_config = json.load(f)
+        print(f"Loaded config from {CONFIG_FILE} ({len(app_config.get('pages', []))} pages)")
+    except FileNotFoundError:
+        print(f"ERROR: {CONFIG_FILE} not found. Copy config.example.json to config.json and configure your playlists.")
+        app_config = {}
+    except Exception as e:
+        print(f"ERROR reading {CONFIG_FILE}: {e}")
+        app_config = {}
+    return app_config
+
+
+def load_page_playlists(page_config, sp_name_to_id):
+    """Resolve a single page's playlists from config against Spotify data.
+    Returns a list of playlist dicts ready for the frontend."""
+    resolved = []
+    seen_names = set()
+
+    for item in page_config.get('playlists', []):
+        # Handle dividers
+        if item.get('type') == 'divider':
+            resolved.append({
+                'name': 'DIVIDER',
+                'spotify_name': 'DIVIDER',
+                'id': 'DIVIDER',
+                'is_divider': True
+            })
+            continue
+
+        d_name = item.get('display_name', '').strip()
+        s_name = item.get('spotify_name', '').strip()
+        if not d_name or not s_name:
+            continue
+
+        # Dedup
+        if d_name in seen_names:
+            continue
+
+        # Resolve ID: explicit from config takes priority, then lookup by name
+        pid = item.get('spotify_id') or sp_name_to_id.get(s_name)
+
+        if not pid:
+            print(f"Warning: Playlist '{s_name}' not found in your Spotify library.")
+            continue
+
+        # Ensure cache slot exists
+        if pid not in playlist_tracks_cache:
+            playlist_tracks_cache[pid] = set()
+
+        resolved.append({
+            'name': d_name,
+            'spotify_name': s_name,
+            'id': pid,
+            'is_divider': False
+        })
+        seen_names.add(d_name)
+
+    return resolved
+
+
+def populate_page_cache(page_id, playlists, label=None):
+    """Background cache population for a single page's playlists."""
     global playlist_tracks_cache
-    # Reduced wait time for faster initial response
-    time.sleep(3)
-    print("Starting background cache population...")
-    
+    tag = label or page_id
+    print(f"Starting background cache ({tag})...")
     count = 0
-    for pl in dashboard_playlists:
+    for pl in playlists:
+        if pl.get('is_divider'):
+            continue
         pid = pl['id']
         sname = pl['spotify_name']
-        
         try:
             track_uris = set()
             results = sp.playlist_items(pid, additional_types=['track'], limit=100, fields='next,items(track(uri))')
-            
             def add_items(items):
                 for item in items:
                     if item.get('track') and item['track'].get('uri'):
                         track_uris.add(item['track']['uri'])
-            
             add_items(results['items'])
             while results['next']:
                 results = sp.next(results)
                 add_items(results['items'])
-            
             playlist_tracks_cache[pid] = track_uris
             count += 1
-            time.sleep(2) # Sleep to respect rate limits
-            
+            time.sleep(2)  # Respect rate limits
         except Exception as e:
-            print(f"Error caching playlist {sname}: {e}")
-            
-    print(f"Cache population complete. Cached {count}/{len(dashboard_playlists)} playlists.")
+            print(f"Error caching {tag} playlist {sname}: {e}")
+    print(f"{tag} cache complete. Cached {count}/{len([p for p in playlists if not p.get('is_divider')])} playlists.")
+
 
 def fetch_all_user_playlists():
     """Fetch all user playlists from Spotify once. Returns list of playlist dicts or None on error."""
@@ -87,280 +148,48 @@ def fetch_all_user_playlists():
     print(f"Fetched {len(spotify_playlists)} user playlists from Spotify.")
     return spotify_playlists
 
-def load_playlists(spotify_playlists=None):
-    global playlist_map, dashboard_playlists
-    playlist_map = {}
-    dashboard_playlists = []
-    
-    # 1. Read CSV to get Dashboard Name -> Spotify Playlist Name mapping
-    csv_mapping = []
-    try:
-        with open(CSV_FILE, mode='r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                d_name = row.get("Dashboard Name", "").strip()
-                s_name = row.get("Spotify Playlist Name", "").strip()
-                if d_name and s_name:
-                    csv_mapping.append({"d_name": d_name, "s_name": s_name})
-    except Exception as e:
-        print(f"Error reading CSV: {e}")
-        return
 
-    # 2. Use pre-fetched playlists or fetch if not provided
-    if spotify_playlists is None:
-        spotify_playlists = fetch_all_user_playlists()
-        if spotify_playlists is None:
-            return
+def load_all_pages(spotify_playlists):
+    """Load and resolve playlists for every page defined in config.json."""
+    global page_playlists, dashboard_playlists, tracker_playlists, queue_playlists
 
-    # Map Name -> ID (Case insensitive for robustness? adhering to exact name for now based on prompt)
-    # Using a dict for quick lookup: Name -> ID
-    # Note: Duplicate names in Spotify are possible, this will pick the last one found.
     sp_name_to_id = {p['name']: p['id'] for p in spotify_playlists}
 
-    # 3. Match CSV entries to Spotify IDs
-    # 3. Match CSV entries to Spotify IDs (and dedup)
-    seen_names = set()
-    for item in csv_mapping:
-        d_name = item['d_name']
-        s_name = item['s_name']
-        
-        # Avoid duplicates
-        if d_name in seen_names:
-            continue
-            
-        # Handle explicit IDs (avoids missing playlists or duplicates)
-        explicit_ids = {
-            "Cruise Control 🚘 NEW 2026 R&B to ride to 🚗 💨": "6PaI7gZiVU0wlBusCwYyh9",
-            "BEST NEW 2026 Conscious Hip-Hop": "593KXjedxJrSCjf6jC2RUq",
-            "NEW 2026 S3XY DRILL NO DIDDY 🍑🍆🔫 FIYAH SEXY R&B Hip-Hop Rap 💥 (updated weekly)": "4sThCBzRZyO0DY507WACHD",
-            "New Hip Hop & Rap with a Retro 2000s sound": "1c3VxlMSXinIq6NE1afSw4"
-        }
-        
-        if s_name in explicit_ids:
-            pid = explicit_ids[s_name]
-        elif s_name in sp_name_to_id:
-            pid = sp_name_to_id[s_name]
-        else:
-            print(f"Warning: Playlist '{s_name}' not found in your Spotify library.")
-            continue
-            
-        playlist_map[s_name] = pid
-        dashboard_playlists.append({
-            "name": d_name,
-            "spotify_name": s_name,
-            "id": pid
-        })
-        seen_names.add(d_name)
+    for page in app_config.get('pages', []):
+        page_id = page['id']
+        resolved = load_page_playlists(page, sp_name_to_id)
+        page_playlists[page_id] = resolved
+        print(f"Loaded {len([p for p in resolved if not p.get('is_divider')])} playlists for page '{page_id}'.")
 
-    print(f"Loaded {len(dashboard_playlists)} matched playlists.")
+        # Start background cache population per page
+        threading.Thread(
+            target=populate_page_cache,
+            args=(page_id, resolved, page.get('label', page_id)),
+            daemon=True
+        ).start()
 
-    # Start background cache population
-    threading.Thread(target=populate_playlist_cache, daemon=True).start()
+    # Backward-compat aliases for existing API endpoints & frontend JS
+    dashboard_playlists = page_playlists.get('playlists', [])
+    tracker_playlists = page_playlists.get('tracker', [])
+    queue_playlists = page_playlists.get('queue', [])
 
-# Global list for Tracker Page
-tracker_playlists = []
-TRACKER_CSV_FILE = "data/csv/Tracker to Display.csv"
-
-# Global list for Queue Page
-queue_playlists = []
-QUEUE_CSV_FILE = "data/csv/Queue to Display.csv"
-
-def load_tracker_playlists(spotify_playlists=None):
-    global tracker_playlists
-    tracker_playlists = []
-    
-    csv_mapping = []
-    try:
-        with open(TRACKER_CSV_FILE, mode='r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                d_name = row.get("Dashboard Name", "").strip()
-                s_name = row.get("Spotify Playlist Name", "").strip()
-                if d_name and s_name:
-                    csv_mapping.append({"d_name": d_name, "s_name": s_name})
-    except Exception as e:
-        print(f"Error reading Tracker CSV: {e}")
-        return
-
-    # Use pre-fetched playlists or fetch if not provided
-    if spotify_playlists is None:
-        spotify_playlists = fetch_all_user_playlists()
-        if spotify_playlists is None:
-            return
-        
-    sp_name_to_id = {p['name']: p['id'] for p in spotify_playlists}
-    
-    for item in csv_mapping:
-        d_name = item['d_name']
-        s_name = item['s_name']
-        
-        if d_name == "DIVIDER":
-            tracker_playlists.append({
-                "name": "DIVIDER",
-                "spotify_name": "DIVIDER",
-                "id": "DIVIDER",
-                "is_divider": True
-            })
-            continue
-
-        if s_name in sp_name_to_id:
-            pid = sp_name_to_id[s_name]
-            
-            # Handle duplicate playlists - force specific IDs from "Tracker Duplicates - fixed.csv"
-            duplicate_overrides = {
-                "A&R - Unsigned Male Rappers to Track [2026]": "6kpKC8PtXItyBnt9ZmD2m6",
-                "A&R - Rappers to Track - Male (200K - 500k) [2026]": "0s18ZTUYR2bgO8lgIQ1z3W",
-                "A&R - SIGNED Rappers to Track [2026]": "0y22gj9CjSOk6kiJX48f3e",
-                "A&R - SIGNED Rappers to Track - Female [2026]": "444aXdKo8VqB5sGcJ19PRi",
-                "A&R - Unsigned R&B Singers to Track [2026]": "1Ab0pjOxVGlzz6OsFFSqqZ",
-                "A&R - SIGNED R&B Singers to Track [2026]": "0u3S5gh8gSOrOT1NMP94dw"
-            }
-            
-            if s_name in duplicate_overrides:
-                pid = duplicate_overrides[s_name]
-            
-            # Add to main cache map if not there (helps with toggling)
-            if pid not in playlist_tracks_cache:
-                playlist_tracks_cache[pid] = set()
-            
-            tracker_playlists.append({
-                "name": d_name,
-                "spotify_name": s_name,
-                "id": pid,
-                "is_divider": False
-            })
-        else:
-            print(f"Warning: Tracker Playlist '{s_name}' not found.")
-
-    print(f"Loaded {len(tracker_playlists)} tracker items.")
-    
-    # Trigger cache population for these new IDs
-    threading.Thread(target=populate_tracker_cache, daemon=True).start()
-
-def populate_tracker_cache():
-    global playlist_tracks_cache
-    print("Starting background cache (Tracker)...")
-    count = 0
-    for pl in tracker_playlists:
-        if pl.get('is_divider'): continue
-        
-        pid = pl['id']
-        sname = pl['spotify_name']
-        try:
-            track_uris = set()
-            results = sp.playlist_items(pid, additional_types=['track'], limit=100, fields='next,items(track(uri))')
-            def add_items(items):
-                for item in items:
-                    if item.get('track') and item['track'].get('uri'):
-                        track_uris.add(item['track']['uri'])
-            add_items(results['items'])
-            while results['next']:
-                results = sp.next(results)
-                add_items(results['items'])
-            playlist_tracks_cache[pid] = track_uris
-            count += 1
-        except Exception as e:
-            print(f"Error caching tracker playlist {sname}: {e}")
-    print(f"Tracker Cache complete. Cached {count} playlists.")
-
-def load_queue_playlists(spotify_playlists=None):
-    global queue_playlists
-    queue_playlists = []
-    
-    csv_mapping = []
-    try:
-        with open(QUEUE_CSV_FILE, mode='r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                d_name = row.get("Name", "").strip()
-                s_name = row.get("Spotify Playlist Name", "").strip()
-                if d_name and s_name:
-                    csv_mapping.append({"d_name": d_name, "s_name": s_name})
-    except Exception as e:
-        print(f"Error reading Queue CSV: {e}")
-        return
-
-    # Use pre-fetched playlists or fetch if not provided
-    if spotify_playlists is None:
-        spotify_playlists = fetch_all_user_playlists()
-        if spotify_playlists is None:
-            return
-        
-    sp_name_to_id = {p['name']: p['id'] for p in spotify_playlists}
-    
-    for item in csv_mapping:
-        d_name = item['d_name']
-        s_name = item['s_name']
-        
-        if d_name == "LINE BREAK":
-            queue_playlists.append({
-                "name": "DIVIDER",
-                "spotify_name": "DIVIDER",
-                "id": "DIVIDER",
-                "is_divider": True
-            })
-            continue
-
-        if s_name in sp_name_to_id:
-            pid = sp_name_to_id[s_name]
-            # Add to main cache map if not there (helps with toggling)
-            if pid not in playlist_tracks_cache:
-                playlist_tracks_cache[pid] = set()
-            
-            queue_playlists.append({
-                "name": d_name,
-                "spotify_name": s_name,
-                "id": pid,
-                "is_divider": False
-            })
-        else:
-            print(f"Warning: Queue Playlist '{s_name}' not found.")
-
-    print(f"Loaded {len(queue_playlists)} queue items.")
-    
-    # Trigger cache population for these new IDs
-    threading.Thread(target=populate_queue_cache, daemon=True).start()
-
-def populate_queue_cache():
-    global playlist_tracks_cache
-    print("Starting background cache (Queue)...")
-    count = 0
-    for pl in queue_playlists:
-        if pl.get('is_divider'): continue
-        
-        pid = pl['id']
-        sname = pl['spotify_name']
-        try:
-            track_uris = set()
-            results = sp.playlist_items(pid, additional_types=['track'], limit=100, fields='next,items(track(uri))')
-            def add_items(items):
-                for item in items:
-                    if item.get('track') and item['track'].get('uri'):
-                        track_uris.add(item['track']['uri'])
-            add_items(results['items'])
-            while results['next']:
-                results = sp.next(results)
-                add_items(results['items'])
-            playlist_tracks_cache[pid] = track_uris
-            count += 1
-        except Exception as e:
-            print(f"Error caching queue playlist {sname}: {e}")
-    print(f"Queue Cache complete. Cached {count} playlists.")
 
 # Helper to load playlists only if authorized
 def safe_load_playlists():
     global loading_state
     try:
+        load_config()
+        if not app_config.get('pages'):
+            print("No pages defined in config. Nothing to load.")
+            return
+
         auth_manager = get_auth_manager()
         token = auth_manager.get_cached_token()
         if token:
             print(f"Token found. Loading playlists... (expires: {token.get('expires_at', 'unknown')})")
-            # Fetch all user playlists ONCE and share across all loaders
             spotify_playlists = fetch_all_user_playlists()
             if spotify_playlists is not None:
-                load_playlists(spotify_playlists)
-                load_tracker_playlists(spotify_playlists)
-                load_queue_playlists(spotify_playlists)
+                load_all_pages(spotify_playlists)
             else:
                 print("Failed to fetch user playlists from Spotify.")
         else:
@@ -376,11 +205,42 @@ def safe_load_playlists():
 # Initial Load Attempt — run in background so Flask starts serving immediately
 threading.Thread(target=safe_load_playlists, daemon=True).start()
 
+# ─────────────────────────────────────────────
 # Health check endpoint (fast, no auth required)
+# ─────────────────────────────────────────────
 @app.route('/health')
 def health():
     return 'ok', 200
 
+# ─────────────────────────────────────────────
+# Generic page route — works for any page defined in config.json
+# e.g. /page/playlists, /page/tracker, /page/queue, /page/my-new-page
+# ─────────────────────────────────────────────
+@app.route('/page/<page_id>')
+def serve_page(page_id):
+    auth_manager = get_auth_manager()
+    if not auth_manager.validate_token(auth_manager.get_cached_token()):
+        return redirect('/login')
+    # Look up the HTML file for this page from config
+    page_cfg = next((p for p in app_config.get('pages', []) if p['id'] == page_id), None)
+    if not page_cfg:
+        return jsonify({"error": f"Page '{page_id}' not found in config"}), 404
+    html_file = page_cfg.get('html', f'{page_id}.html')
+    response = send_from_directory('static', html_file)
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    return response
+
+# Generic playlist API — works for any page_id in config.json
+@app.route('/api/page/<page_id>/playlists')
+def get_page_playlists_api(page_id):
+    playlists = page_playlists.get(page_id, [])
+    response = jsonify(playlists)
+    response.headers['X-Loading-State'] = loading_state
+    return response
+
+# ─────────────────────────────────────────────
+# Backward-compat aliases — your existing local URLs keep working
+# ─────────────────────────────────────────────
 @app.route('/')
 def index():
     auth_manager = get_auth_manager()
@@ -392,33 +252,23 @@ def index():
 
 @app.route('/tracker')
 def tracker():
-    auth_manager = get_auth_manager()
-    if not auth_manager.validate_token(auth_manager.get_cached_token()):
-        return redirect('/login')
-    response = send_from_directory('static', 'tracker.html')
-    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-    return response
+    return serve_page('tracker')
 
 @app.route('/api/tracker-playlists')
 def get_tracker_playlists():
-    response = jsonify(tracker_playlists)
-    response.headers['X-Loading-State'] = loading_state
-    return response
+    return get_page_playlists_api('tracker')
 
 @app.route('/queue')
 def queue():
-    auth_manager = get_auth_manager()
-    if not auth_manager.validate_token(auth_manager.get_cached_token()):
-        return redirect('/login')
-    response = send_from_directory('static', 'queue.html')
-    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-    return response
+    return serve_page('queue')
 
 @app.route('/api/queue-playlists')
 def get_queue_playlists():
-    response = jsonify(queue_playlists)
-    response.headers['X-Loading-State'] = loading_state
-    return response
+    return get_page_playlists_api('queue')
+
+@app.route('/api/playlists')
+def get_playlists():
+    return get_page_playlists_api('playlists')
 
 @app.route('/login')
 def login():
@@ -432,12 +282,11 @@ def callback():
     code = request.args.get('code')
     if code:
         auth_manager.get_access_token(code)
-        # Load playlists after successful authentication
+        # Reload playlists after successful authentication
+        load_config()
         spotify_playlists = fetch_all_user_playlists()
         if spotify_playlists is not None:
-            load_playlists(spotify_playlists)
-            load_tracker_playlists(spotify_playlists)
-            load_queue_playlists(spotify_playlists)
+            load_all_pages(spotify_playlists)
     return redirect('/')
 
 @app.route('/<path:path>')
@@ -817,10 +666,17 @@ def get_artist_latest_release():
                 pass
         
         # Combine albums and EPs, sort by release date descending
+        # Filter out releases matching exclude patterns from config (e.g. "deluxe", "remaster")
+        exclude_patterns = app_config.get('sidebar', {}).get('exclude_patterns', ['deluxe'])
+        
+        def is_excluded(name):
+            name_lower = name.lower()
+            return any(pattern.lower() in name_lower for pattern in exclude_patterns)
+        
         all_releases = []
         
         for album in albums:
-            if 'deluxe' in album.get('name', '').lower():
+            if is_excluded(album.get('name', '')):
                 continue
             release_date = album.get('release_date', '1900-01-01')
             all_releases.append({
@@ -834,7 +690,7 @@ def get_artist_latest_release():
             })
         
         for ep in ep_candidates:
-            if 'deluxe' in ep.get('name', '').lower():
+            if is_excluded(ep.get('name', '')):
                 continue
             release_date = ep.get('release_date', '1900-01-01')
             all_releases.append({

@@ -79,13 +79,14 @@ async function init() {
 
 async function fetchPlaylists() {
   try {
-    const isTracker = document.body.classList.contains("tracker-page");
-    const isQueue = document.body.classList.contains("queue-page");
-    const endpoint = isTracker
-      ? "/api/tracker-playlists"
-      : isQueue
-        ? "/api/queue-playlists"
-        : "/api/playlists";
+    // Read page identity from data attribute — works for any page defined in config.json.
+    // Falls back to body class checks for backward compatibility with existing HTML files.
+    const pageId = document.body.dataset.pageId
+      || (document.body.classList.contains("tracker-page") ? "tracker"
+        : document.body.classList.contains("queue-page") ? "queue"
+        : "playlists");
+
+    const endpoint = `/api/page/${pageId}/playlists`;
 
     const res = await fetch(endpoint);
 
@@ -655,7 +656,7 @@ function initSidebar() {
  */
 async function fetchQueuePlaylistsForSidebar() {
   try {
-    const res = await fetch("/api/queue-playlists");
+    const res = await fetch("/api/page/queue/playlists");
     if (!res.ok) return;
 
     const playlists = await res.json();

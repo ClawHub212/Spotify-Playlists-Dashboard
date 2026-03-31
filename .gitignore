@@ -1,6 +1,10 @@
 # Environment and credentials
 .env
 .cache
+config.json
+
+# Legacy CSV data (now replaced by config.json)
+data/csv/
 
 # Python
 __pycache__/

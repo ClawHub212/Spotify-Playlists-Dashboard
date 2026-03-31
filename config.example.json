@@ -1,0 +1,62 @@
+{
+  "pages": [
+    {
+      "id": "playlists",
+      "label": "PLAYLISTS",
+      "type": "grid",
+      "route": "/",
+      "html": "playlists.html",
+      "playlists": [
+        {
+          "display_name": "My Favorites",
+          "spotify_name": "Your Spotify Playlist Name Here"
+        },
+        {
+          "display_name": "Chill Vibes",
+          "spotify_name": "Another Playlist Name",
+          "spotify_id": "optional_override_id_for_duplicates"
+        }
+      ]
+    },
+    {
+      "id": "tracker",
+      "label": "TRACKER",
+      "type": "list",
+      "route": "/tracker",
+      "html": "tracker.html",
+      "playlists": [
+        {
+          "display_name": "Artists to Watch",
+          "spotify_name": "Your Tracker Playlist"
+        },
+        { "type": "divider" },
+        {
+          "display_name": "Signed Artists",
+          "spotify_name": "Your Signed Artists Playlist"
+        }
+      ]
+    },
+    {
+      "id": "queue",
+      "label": "QUEUE",
+      "type": "album-list",
+      "route": "/queue",
+      "html": "queue.html",
+      "playlists": [
+        {
+          "display_name": "🎤 Queue 1",
+          "spotify_name": "Your Queue Playlist"
+        },
+        { "type": "divider" },
+        {
+          "display_name": "🗣 Queue 2",
+          "spotify_name": "Another Queue Playlist"
+        }
+      ]
+    }
+  ],
+  "sidebar": {
+    "exclude_patterns": ["deluxe", "remaster"],
+    "queue_page_id": "queue"
+  }
+}
