@@ -9,12 +9,16 @@
       "playlists": [
         {
           "display_name": "My Favorites",
-          "spotify_name": "Your Spotify Playlist Name Here"
+          "spotify_name": "Your Exact Spotify Playlist Name Here"
         },
         {
-          "display_name": "Chill Vibes",
-          "spotify_name": "Another Playlist Name",
-          "spotify_id": "optional_override_id_for_duplicates"
+          "display_name": "Late Night",
+          "spotify_name": "Another Playlist Name"
+        },
+        {
+          "display_name": "Workout",
+          "spotify_name": "Playlist With A Duplicate Name",
+          "spotify_id": "paste_spotify_playlist_id_here_to_resolve_duplicates"
         }
       ]
     },
@@ -27,12 +31,16 @@
       "playlists": [
         {
           "display_name": "Artists to Watch",
-          "spotify_name": "Your Tracker Playlist"
+          "spotify_name": "Your Artist Watchlist Playlist"
+        },
+        {
+          "display_name": "New Discoveries",
+          "spotify_name": "Another Tracking Playlist"
         },
         { "type": "divider" },
         {
-          "display_name": "Signed Artists",
-          "spotify_name": "Your Signed Artists Playlist"
+          "display_name": "Established Favorites",
+          "spotify_name": "Your Established Artists Playlist"
         }
       ]
     },
@@ -44,19 +52,19 @@
       "html": "queue.html",
       "playlists": [
         {
-          "display_name": "🎤 Queue 1",
-          "spotify_name": "Your Queue Playlist"
+          "display_name": "🎵 Queue A",
+          "spotify_name": "Your First Queue Playlist"
         },
         { "type": "divider" },
         {
-          "display_name": "🗣 Queue 2",
-          "spotify_name": "Another Queue Playlist"
+          "display_name": "🎵 Queue B",
+          "spotify_name": "Your Second Queue Playlist"
         }
       ]
     }
   ],
   "sidebar": {
-    "exclude_patterns": ["deluxe", "remaster"],
+    "exclude_patterns": ["deluxe", "remaster", "live", "anniversary"],
     "queue_page_id": "queue"
   }
 }
