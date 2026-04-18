@@ -712,7 +712,11 @@ async function showArtistSidebar(track) {
 
   // Check cache first
   if (sidebarState.artistCache[artistName]) {
-    populateSidebar(sidebarState.artistCache[artistName]);
+    if (sidebarState.artistCache[artistName] === "empty") {
+      populateEmptySidebar(artistName);
+    } else {
+      populateSidebar(sidebarState.artistCache[artistName]);
+    }
     if (!sidebarState.isOpen) {
       sidebarState.isOpen = true;
       sidebar.classList.add("open");
@@ -731,20 +735,26 @@ async function showArtistSidebar(track) {
     document.querySelector(".playlist-section")?.classList.add("sidebar-open");
   }
 
-  try {
-    const res = await fetch(`/api/artist-latest-release?artist_name=${encodeURIComponent(artistName)}`);
-    if (!res.ok) {
-      const errData = await res.json();
-      console.warn("Failed to fetch artist latest release:", errData.error);
-      if (content) content.classList.remove("sidebar-loading");
-      return;
-    }
-
-    const release = await res.json();
-    sidebarState.artistCache[artistName] = release;
-    populateSidebar(release);
-
-  } catch (e) {
+    try {
+      const res = await fetch(`/api/artist-latest-release?artist_name=${encodeURIComponent(artistName)}`);
+      if (!res.ok) {
+        if (res.status === 404) {
+          // Render elegant empty state
+          populateEmptySidebar(artistName);
+          sidebarState.artistCache[artistName] = "empty";
+        } else {
+          const errData = await res.json();
+          console.warn("Failed to fetch artist latest release:", errData?.error);
+        }
+        if (content) content.classList.remove("sidebar-loading");
+        return;
+      }
+  
+      const release = await res.json();
+      sidebarState.artistCache[artistName] = release;
+      populateSidebar(release);
+  
+    } catch (e) {
     console.error("Error fetching artist release:", e);
   } finally {
     if (content) content.classList.remove("sidebar-loading");
@@ -755,6 +765,9 @@ async function showArtistSidebar(track) {
  * Populate sidebar UI with release data
  */
 async function populateSidebar(release) {
+  const content = document.getElementById("sidebar-content");
+  if (content) content.classList.remove("empty-state");
+
   sidebarState.currentRelease = release;
 
   // Artwork
@@ -795,6 +808,21 @@ async function populateSidebar(release) {
   // Wire up follow button
   sidebarState.isFollowing = release.is_following || false;
   setupFollowButton(release.artist_id);
+}
+
+/**
+ * Render elegant empty state when no recent release is found
+ */
+function populateEmptySidebar(artistName) {
+  sidebarState.currentRelease = null;
+  const content = document.getElementById("sidebar-content");
+  if (content) content.classList.add("empty-state");
+
+  const releaseName = document.getElementById("sidebar-release-name");
+  if (releaseName) releaseName.textContent = "No Recent Releases";
+
+  const artistNameEl = document.getElementById("sidebar-artist-name");
+  if (artistNameEl) artistNameEl.textContent = `for ${artistName}`;
 }
 
 /**

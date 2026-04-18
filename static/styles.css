@@ -928,6 +928,48 @@ body.tracker-page .sidebar-release-date {
 }
 
 /* ========================================
+   Empty State
+   ======================================== */
+.sidebar-content.empty-state .sidebar-artwork-wrap,
+.sidebar-content.empty-state .sidebar-release-date,
+.sidebar-content.empty-state .sidebar-actions,
+.sidebar-content.empty-state .sidebar-queue-section {
+  display: none !important;
+}
+
+.sidebar-content.empty-state {
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+
+.sidebar-content.empty-state .sidebar-meta {
+  margin-top: -20px;
+}
+
+.sidebar-content.empty-state .sidebar-release-name {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 1rem;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+
+.sidebar-content.empty-state .sidebar-artist-name {
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.sidebar-content.empty-state .sidebar-release-name::before {
+  content: "💿";
+  display: block;
+  font-size: 3rem;
+  margin-bottom: 24px;
+  filter: grayscale(1) opacity(0.5);
+}
+
+/* ========================================
    Page-specific sidebar accents
    ======================================== */
 
