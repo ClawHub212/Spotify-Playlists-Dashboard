@@ -364,22 +364,6 @@ def get_current_track():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route('/api/playlists')
-def get_playlists():
-    # Return playlists with "isActive" status for the given track_id
-    track_id = request.args.get('track_id')
-    if not track_id:
-        response = jsonify(dashboard_playlists) # Return without active status
-        response.headers['X-Loading-State'] = loading_state
-        return response
-
-    # Start with all false
-    # ... (logic removed in previous thought, skipping implementation complexity here)
-    
-    response = jsonify(dashboard_playlists)
-    response.headers['X-Loading-State'] = loading_state
-    return response
-
 @app.route('/api/check-playlists')
 def check_playlists():
     track_uri = request.args.get('track_uri') # Using URI or ID
