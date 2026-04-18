@@ -65,8 +65,6 @@ class LoadingViewController: NSObject {
 
         parentView.addSubview(containerView, positioned: .above, relativeTo: nil)
         containerView.addSubview(titleLabel)
-        containerView.addSubview(subtitleLabel)
-        containerView.addSubview(statusLabel)
 
         layoutViews()
         setupProgressRing()
@@ -207,10 +205,7 @@ class LoadingViewController: NSObject {
         glowLayer.strokeEnd = progressValue
         CATransaction.commit()
 
-        // Update subtitle with elapsed time
-        let elapsed = Date().timeIntervalSince(startTime)
-        let elapsedStr = String(format: "%.1fs", elapsed)
-        subtitleLabel.stringValue = "Elapsed: \(elapsedStr)"
+
     }
 
     /// Dismiss the loading screen with a smooth fade out

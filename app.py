@@ -210,7 +210,10 @@ threading.Thread(target=safe_load_playlists, daemon=True).start()
 # ─────────────────────────────────────────────
 @app.route('/health')
 def health():
-    return 'ok', 200
+    if loading_state == "done":
+        return 'ok', 200
+    else:
+        return 'loading', 503
 
 # ─────────────────────────────────────────────
 # Generic page route — works for any page defined in config.json

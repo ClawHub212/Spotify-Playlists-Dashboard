@@ -69,12 +69,37 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }) { [weak self] in
             DispatchQueue.main.async {
                 self?.webViewController.loadPage(.playlists)
-                // Dismiss loading screen after a brief moment for the WebView to render
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                    self?.loadingViewController?.dismiss {
-                        self?.loadingViewController = nil
+                
+                // Poll WebView until the DOM actually contains the rendered playlists
+                func checkWebViewReady(attemptsLeft: Int) {
+                    guard attemptsLeft > 0 else {
+                        // Fallback: dismiss anyway if it takes too long
+                        self?.loadingViewController?.dismiss {
+                            self?.loadingViewController = nil
+                        }
+                        return
+                    }
+                    
+                    let js = "document.getElementById('playlist-grid') ? document.getElementById('playlist-grid').children.length : -1"
+                    self?.webViewController.webView.evaluateJavaScript(js) { (result, error) in
+                        if let count = result as? Int, count > 0 {
+                            // Rendered! Add a tiny grace period for CSS paint
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                self?.loadingViewController?.dismiss {
+                                    self?.loadingViewController = nil
+                                }
+                            }
+                        } else {
+                            // Check again in 200ms
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                                checkWebViewReady(attemptsLeft: attemptsLeft - 1)
+                            }
+                        }
                     }
                 }
+                
+                // Start checking (give it a max of 50 attempts = 10 seconds)
+                checkWebViewReady(attemptsLeft: 50)
             }
         }
 
