@@ -21,6 +21,7 @@ Built for anyone who curates Spotify playlists seriously — whether that's musi
 - 📊 **Tracker Page** — A list-style view supporting dividers, designed for monitoring playlists over time (e.g., artist rosters, watchlists).
 - 🔄 **Smart Polling** — Stays in sync with Spotify playback with graceful rate-limit handling and tab visibility awareness.
 - ⚙️ **Fully Config-Driven** — All pages and playlists are defined in a single `config.json`. No code changes needed to add, remove, or rename a page.
+- 🤝 **Follow Artist** — Instantly follow or unfollow the currently playing artist directly from the sidebar.
 - 🖥️ **Native macOS Wrapper** — A Swift-based desktop app (`/desktop`) with zoom controls, a system-menu relaunch shortcut, and no browser chrome.
 
 ---
