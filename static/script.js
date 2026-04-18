@@ -632,6 +632,7 @@ let sidebarState = {
   queueActiveMap: new Set(), // Active queue playlist IDs for sidebar album
   artistCache: {},         // Cache: artistName -> release data
   isLibrarySaved: false,
+  isFollowing: false,
 };
 
 /**
@@ -790,6 +791,10 @@ async function populateSidebar(release) {
 
   // Wire up library button
   setupLibraryButton(release.id);
+
+  // Wire up follow button
+  sidebarState.isFollowing = release.is_following || false;
+  setupFollowButton(release.artist_id);
 }
 
 /**
@@ -883,6 +888,72 @@ function setupLibraryButton(albumId) {
       console.error("Error toggling album library:", e);
     }
   });
+}
+
+/**
+ * Update follow button UI based on state
+ */
+function updateFollowButtonUI() {
+  const btn = document.getElementById("sidebar-follow-btn");
+  const btnText = document.getElementById("follow-btn-text");
+  if (!btn || !btnText) return;
+
+  if (sidebarState.isFollowing) {
+    btn.classList.add("saved"); // Use same styling class as library button for consistency
+    btnText.textContent = "Following";
+  } else {
+    btn.classList.remove("saved");
+    btnText.textContent = "Follow";
+  }
+}
+
+/**
+ * Set up follow button click handler
+ */
+function setupFollowButton(artistId) {
+  const btn = document.getElementById("sidebar-follow-btn");
+  if (!btn || !artistId) {
+    if (btn) btn.style.display = "none";
+    return;
+  }
+  
+  btn.style.display = "flex"; // Ensure it's visible if we have an artist ID
+
+  // Remove old handler by cloning
+  const newBtn = btn.cloneNode(true);
+  btn.parentNode.replaceChild(newBtn, btn);
+
+  newBtn.addEventListener("click", async () => {
+    const action = sidebarState.isFollowing ? "remove" : "add";
+
+    // Optimistic update
+    sidebarState.isFollowing = !sidebarState.isFollowing;
+    updateFollowButtonUI();
+
+    try {
+      const res = await fetch("/api/toggle-artist-follow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ artist_id: artistId, action }),
+      });
+
+      const data = await res.json();
+      if (!data.success) {
+        // Revert
+        sidebarState.isFollowing = !sidebarState.isFollowing;
+        updateFollowButtonUI();
+        console.error("Failed to toggle follow:", data.error);
+      }
+    } catch (e) {
+      // Revert
+      sidebarState.isFollowing = !sidebarState.isFollowing;
+      updateFollowButtonUI();
+      console.error("Error toggling follow:", e);
+    }
+  });
+
+  // Initial UI state
+  updateFollowButtonUI();
 }
 
 /**

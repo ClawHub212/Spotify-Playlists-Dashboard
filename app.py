@@ -16,7 +16,7 @@ app = Flask(__name__, static_folder='static')
 
 # Configuration
 CONFIG_FILE = "config.json"
-SCOPE = "user-read-playback-state user-modify-playback-state user-library-read user-library-modify playlist-read-private playlist-read-collaborative playlist-modify-public playlist-modify-private user-read-recently-played"
+SCOPE = "user-read-playback-state user-modify-playback-state user-library-read user-library-modify playlist-read-private playlist-read-collaborative playlist-modify-public playlist-modify-private user-read-recently-played user-follow-read user-follow-modify"
 
 # Spotify Auth Manager
 def get_auth_manager():
@@ -714,6 +714,15 @@ def get_artist_latest_release():
         
         latest['formatted_date'] = formatted_date
         latest['artist_name'] = artist_name
+        latest['artist_id'] = artist_id
+        
+        # Check if following artist
+        try:
+            following = sp.current_user_following_artists([artist_id])
+            latest['is_following'] = following[0] if following else False
+        except Exception as e:
+            print(f"Error checking artist follow status: {e}")
+            latest['is_following'] = False
         
         return jsonify(latest)
 
@@ -725,6 +734,33 @@ def get_artist_latest_release():
         return jsonify({"error": str(e)}), 500
     except Exception as e:
         print(f"Error getting artist latest release: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/toggle-artist-follow', methods=['POST'])
+def toggle_artist_follow():
+    """Follow or unfollow an artist"""
+    data = request.json
+    artist_id = data.get('artist_id')
+    action = data.get('action')  # 'add' or 'remove'
+    
+    if not all([artist_id, action]):
+        return jsonify({"error": "Missing data"}), 400
+
+    auth_manager = get_auth_manager()
+    if not auth_manager.validate_token(auth_manager.get_cached_token()):
+        return jsonify({"error": "Not authenticated"}), 401
+
+    try:
+        if action == 'add':
+            sp.user_follow_artists([artist_id])
+            return jsonify({"success": True, "message": "Following artist"})
+        elif action == 'remove':
+            sp.user_unfollow_artists([artist_id])
+            return jsonify({"success": True, "message": "Unfollowed artist"})
+        else:
+            return jsonify({"error": "Invalid action"}), 400
+    except Exception as e:
+        print(f"Error toggling artist follow state: {e}")
         return jsonify({"error": str(e)}), 500
 
 
