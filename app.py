@@ -20,7 +20,7 @@ SCOPE = "user-read-playback-state user-modify-playback-state user-library-read u
 
 # Spotify Auth Manager
 def get_auth_manager():
-    return SpotifyOAuth(scope=SCOPE, open_browser=False)
+    return SpotifyOAuth(scope=SCOPE, open_browser=False, show_dialog=True)
 
 sp = spotipy.Spotify(auth_manager=get_auth_manager(), requests_timeout=10, status_retries=0, retries=0)
 
@@ -691,7 +691,17 @@ def get_artist_latest_release():
             })
         
         if not all_releases:
-            return jsonify({"error": "No albums or EPs found for this artist"}), 404
+            following_status = False
+            try:
+                following = sp.current_user_following_artists([artist_id])
+                following_status = following[0] if following else False
+            except Exception:
+                pass
+            return jsonify({
+                "error": "No albums or EPs found for this artist",
+                "artist_id": artist_id,
+                "is_following": following_status
+            }), 404
         
         # Sort by release date descending (most recent first)
         all_releases.sort(key=lambda x: x['release_date'], reverse=True)

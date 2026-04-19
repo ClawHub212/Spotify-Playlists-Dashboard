@@ -932,7 +932,6 @@ body.tracker-page .sidebar-release-date {
    ======================================== */
 .sidebar-content.empty-state .sidebar-artwork-wrap,
 .sidebar-content.empty-state .sidebar-release-date,
-.sidebar-content.empty-state .sidebar-actions,
 .sidebar-content.empty-state .sidebar-queue-section {
   display: none !important;
 }

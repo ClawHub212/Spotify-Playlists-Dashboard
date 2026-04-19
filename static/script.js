@@ -712,8 +712,8 @@ async function showArtistSidebar(track) {
 
   // Check cache first
   if (sidebarState.artistCache[artistName]) {
-    if (sidebarState.artistCache[artistName] === "empty") {
-      populateEmptySidebar(artistName);
+    if (sidebarState.artistCache[artistName] === "empty" || sidebarState.artistCache[artistName].isEmpty) {
+      populateEmptySidebar(artistName, sidebarState.artistCache[artistName]);
     } else {
       populateSidebar(sidebarState.artistCache[artistName]);
     }
@@ -739,11 +739,12 @@ async function showArtistSidebar(track) {
       const res = await fetch(`/api/artist-latest-release?artist_name=${encodeURIComponent(artistName)}`);
       if (!res.ok) {
         if (res.status === 404) {
-          // Render elegant empty state
-          populateEmptySidebar(artistName);
-          sidebarState.artistCache[artistName] = "empty";
+          const errData = await res.json().catch(() => ({}));
+          const emptyData = { isEmpty: true, artist_id: errData.artist_id, is_following: errData.is_following };
+          sidebarState.artistCache[artistName] = emptyData;
+          populateEmptySidebar(artistName, emptyData);
         } else {
-          const errData = await res.json();
+          const errData = await res.json().catch(() => ({}));
           console.warn("Failed to fetch artist latest release:", errData?.error);
         }
         if (content) content.classList.remove("sidebar-loading");
@@ -802,6 +803,10 @@ async function populateSidebar(release) {
   // Render queue items
   renderSidebarQueue();
 
+  // Ensure buttons are visible if they were hidden by an empty state
+  const libraryBtn = document.getElementById("sidebar-library-btn");
+  if (libraryBtn) libraryBtn.style.display = "flex";
+  
   // Wire up library button
   setupLibraryButton(release.id);
 
@@ -813,7 +818,7 @@ async function populateSidebar(release) {
 /**
  * Render elegant empty state when no recent release is found
  */
-function populateEmptySidebar(artistName) {
+function populateEmptySidebar(artistName, data = null) {
   sidebarState.currentRelease = null;
   const content = document.getElementById("sidebar-content");
   if (content) content.classList.add("empty-state");
@@ -823,6 +828,19 @@ function populateEmptySidebar(artistName) {
 
   const artistNameEl = document.getElementById("sidebar-artist-name");
   if (artistNameEl) artistNameEl.textContent = `for ${artistName}`;
+
+  if (data && data.artist_id) {
+    sidebarState.isFollowing = data.is_following || false;
+    setupFollowButton(data.artist_id);
+  } else {
+    // Hide follow button if we don't have artist ID
+    const followBtn = document.getElementById("sidebar-follow-btn");
+    if (followBtn) followBtn.style.display = "none";
+  }
+  
+  // Hide library button in empty state
+  const libraryBtn = document.getElementById("sidebar-library-btn");
+  if (libraryBtn) libraryBtn.style.display = "none";
 }
 
 /**
