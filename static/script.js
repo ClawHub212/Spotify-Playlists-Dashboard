@@ -720,6 +720,7 @@ async function showArtistSidebar(track) {
     if (!sidebarState.isOpen) {
       sidebarState.isOpen = true;
       sidebar.classList.add("open");
+      document.querySelector(".playlist-section")?.classList.add("sidebar-open");
     }
     return;
   }
