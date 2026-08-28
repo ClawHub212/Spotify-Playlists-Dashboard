@@ -37,10 +37,10 @@ PORT=8888
 APP_PROC="Spotify Dashboard.app/Contents/MacOS/SpotifyDashboard"
 
 # Gitignored files that live only in the main checkout — credentials, the
-# Spotify token, the playlist config, and the venv with the deps. A worktree
-# can't run without them, and they're deliberately SHARED (one token, one
-# config) rather than copied.
-RUNTIME_FILES=(.env config.json .cache .venv)
+# Spotify token, the playlist config, the persisted playlist-track cache, and
+# the venv with the deps. A worktree can't run without them, and they're
+# deliberately SHARED (one token, one config, one cache) rather than copied.
+RUNTIME_FILES=(.env config.json .cache .venv playlist_cache.json)
 
 die() { print -r -- "$1" >&2; exit 1 }
 
@@ -67,7 +67,8 @@ newest_touch() {
     find "$1" \
         \( -name .git -o -name .venv -o -name .claude -o -name __pycache__ \
            -o -name build -o -name node_modules -o -name data \) -prune -o \
-        -type f ! -name .env ! -name .cache ! -name config.json ! -name '*.log' \
+        -type f ! -name .env ! -name .cache ! -name config.json \
+        ! -name playlist_cache.json ! -name '*.log' \
         -print0 2>/dev/null \
     | xargs -0 stat -f '%m' 2>/dev/null | sort -rn | head -1
 }

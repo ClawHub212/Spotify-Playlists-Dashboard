@@ -3,6 +3,9 @@
 .cache
 config.json
 
+# Persisted playlist-track cache (runtime state, rewritten by the backend)
+playlist_cache.json
+
 # Legacy CSV data (now replaced by config.json)
 data/csv/
 

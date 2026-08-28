@@ -92,6 +92,63 @@ queue_playlists = []
 # Loading state: tracks whether initial playlist load is still in progress
 loading_state = "loading"
 
+# ─────────────────────────────────────────────
+# Playlist-track cache persistence
+# ─────────────────────────────────────────────
+# The background warm-up re-fetches every playlist at ~2s each, so a fresh
+# launch would otherwise spend minutes unable to say which playlists contain
+# the current track. The cache is persisted across restarts: loaded at startup
+# (instantly warm, at worst slightly stale) and rewritten as the warm-up
+# re-fetches each playlist and as tiles are toggled.
+PLAYLIST_CACHE_FILE = "playlist_cache.json"
+playlist_cache_file_lock = threading.Lock()
+
+# Number of background cache-fill workers still running. While > 0 (or the
+# initial page load hasn't finished), disk-loaded entries may be stale and
+# new playlists may be missing — /api/check-playlists reports this via the
+# X-Cache-State header so the frontend keeps re-checking until data is fresh.
+cache_fill_pending = 0
+cache_fill_lock = threading.Lock()
+
+
+def load_playlist_cache_from_disk():
+    try:
+        with open(PLAYLIST_CACHE_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        for pid, uris in data.items():
+            playlist_tracks_cache[pid] = set(uris)
+        print(f"Loaded persisted track cache for {len(data)} playlists.")
+    except FileNotFoundError:
+        print("No persisted playlist cache yet (first run).")
+    except Exception as e:
+        print(f"Ignoring unreadable playlist cache: {e}")
+
+
+def save_playlist_cache_to_disk():
+    try:
+        with playlist_cache_file_lock:
+            snapshot = {pid: list(uris) for pid, uris in list(playlist_tracks_cache.items())}
+            # Worktrees share main's cache via a symlink; resolve it first and
+            # replace the real file atomically so the link itself survives.
+            real = os.path.realpath(PLAYLIST_CACHE_FILE)
+            tmp = real + '.tmp'
+            with open(tmp, 'w', encoding='utf-8') as f:
+                json.dump(snapshot, f)
+            os.replace(tmp, real)
+    except Exception as e:
+        print(f"Warning: could not persist playlist cache: {e}")
+
+
+def start_cache_fill_thread(page_id, playlists, tag):
+    # Bump the pending counter here, not in the thread, so a check-playlists
+    # request between spawn and thread start still sees "warming".
+    global cache_fill_pending
+    with cache_fill_lock:
+        cache_fill_pending += 1
+    threading.Thread(target=populate_page_cache,
+                     args=(page_id, playlists, tag),
+                     daemon=True).start()
+
 
 def load_config():
     """Load config.json. Returns the parsed dict or empty dict on error."""
@@ -145,9 +202,11 @@ def load_page_playlists(page_config, sp_name_to_id):
             print(f"Warning: Playlist '{s_name}' not found in your Spotify library.")
             continue
 
-        # Ensure cache slot exists
-        if pid not in playlist_tracks_cache:
-            playlist_tracks_cache[pid] = set()
+        # NOTE: no cache slot is pre-seeded here. Membership in
+        # playlist_tracks_cache means "we have real data for this playlist"
+        # (from the warm-up or the persisted cache) — an empty placeholder
+        # would make /api/check-playlists trust it and answer "not saved
+        # anywhere" for the whole warm-up (the 08-28-26 launch bug).
 
         resolved.append({
             'name': d_name,
@@ -161,32 +220,42 @@ def load_page_playlists(page_config, sp_name_to_id):
 
 
 def populate_page_cache(page_id, playlists, label=None):
-    """Background cache population for a single page's playlists."""
-    global playlist_tracks_cache
+    """Background cache population for a single page's playlists.
+
+    Always run via start_cache_fill_thread (which bumps cache_fill_pending);
+    the counter is decremented here when the fill finishes."""
+    global playlist_tracks_cache, cache_fill_pending
     tag = label or page_id
     print(f"Starting background cache ({tag})...")
     count = 0
-    for pl in playlists:
-        if pl.get('is_divider'):
-            continue
-        pid = pl['id']
-        sname = pl['spotify_name']
-        try:
-            track_uris = set()
-            results = sp.playlist_items(pid, additional_types=['track'], limit=100, fields='next,items(track(uri))')
-            def add_items(items):
-                for item in items:
-                    if item.get('track') and item['track'].get('uri'):
-                        track_uris.add(item['track']['uri'])
-            add_items(results['items'])
-            while results['next']:
-                results = sp.next(results)
+    try:
+        for pl in playlists:
+            if pl.get('is_divider'):
+                continue
+            pid = pl['id']
+            sname = pl['spotify_name']
+            try:
+                track_uris = set()
+                results = sp.playlist_items(pid, additional_types=['track'], limit=100, fields='next,items(track(uri))')
+                def add_items(items):
+                    for item in items:
+                        if item.get('track') and item['track'].get('uri'):
+                            track_uris.add(item['track']['uri'])
                 add_items(results['items'])
-            playlist_tracks_cache[pid] = track_uris
-            count += 1
-            time.sleep(2)  # Respect rate limits
-        except Exception as e:
-            print(f"Error caching {tag} playlist {sname}: {e}")
+                while results['next']:
+                    results = sp.next(results)
+                    add_items(results['items'])
+                playlist_tracks_cache[pid] = track_uris
+                # Persist per playlist so a mid-warm-up quit still leaves the
+                # next launch mostly warm.
+                save_playlist_cache_to_disk()
+                count += 1
+                time.sleep(2)  # Respect rate limits
+            except Exception as e:
+                print(f"Error caching {tag} playlist {sname}: {e}")
+    finally:
+        with cache_fill_lock:
+            cache_fill_pending -= 1
     print(f"{tag} cache complete. Cached {count}/{len([p for p in playlists if not p.get('is_divider')])} playlists.")
 
 
@@ -248,11 +317,7 @@ def load_all_pages(spotify_playlists):
         print(f"Loaded {len([p for p in resolved if not p.get('is_divider')])} playlists for page '{page_id}'.")
 
         # Start background cache population per page
-        threading.Thread(
-            target=populate_page_cache,
-            args=(page_id, resolved, page.get('label', page_id)),
-            daemon=True
-        ).start()
+        start_cache_fill_thread(page_id, resolved, page.get('label', page_id))
 
     # Backward-compat aliases for existing API endpoints & frontend JS
     dashboard_playlists = page_playlists.get('playlists', [])
@@ -286,7 +351,10 @@ def safe_load_playlists():
         loading_state = "done"
         print(f"Loading state set to: {loading_state}")
 
-# Initial Load Attempt — run in background so Flask starts serving immediately
+# Initial Load Attempt — run in background so Flask starts serving immediately.
+# The persisted cache loads first (synchronously — it's a local file read) so
+# the very first /api/check-playlists already knows what's saved where.
+load_playlist_cache_from_disk()
 threading.Thread(target=safe_load_playlists, daemon=True).start()
 
 # ─────────────────────────────────────────────
@@ -402,10 +470,9 @@ def edit_page_playlists(page_id):
             return jsonify({"error": f"Playlist '{spotify_name}' not found in your Spotify library"}), 404
 
         def start_cache_fill(entry, tag):
-            playlist_tracks_cache.setdefault(pid, set())
-            threading.Thread(target=populate_page_cache,
-                             args=(page_id, [entry], tag),
-                             daemon=True).start()
+            # No empty pre-seed: until the fill lands, check-playlists falls
+            # back to a live check for this one playlist.
+            start_cache_fill_thread(page_id, [entry], tag)
 
         if request.method == 'POST':
             if find_item(display_name):
@@ -614,10 +681,25 @@ def check_playlists():
     # Combine dashboard, tracker, and queue playlists for checking
     all_playlists = dashboard_playlists + [p for p in tracker_playlists if not p.get('is_divider')] + [p for p in queue_playlists if not p.get('is_divider')]
 
-    # First check cache
+    # In the first seconds after launch the page lists may not be resolved yet
+    # (safe_load_playlists still fetching from Spotify) — but the persisted
+    # track cache is already loaded. Answer from it directly so the very first
+    # check knows what's saved where; ids for playlists no longer configured
+    # are harmless (the frontend matches ids against rendered tiles).
+    if not all_playlists:
+        active = [pid for pid, uris in list(playlist_tracks_cache.items()) if track_uri in uris]
+        response = jsonify(active)
+        response.headers['X-Cache-State'] = 'warming'
+        return response
+
+    # First check cache. Cache membership means real data (warm-up fetch or
+    # the persisted cache file) — playlists without an entry get a live check.
+    seen_pids = set()
     for pl in all_playlists:
         pid = pl['id']
-        # If cache exists for this playlist, use it
+        if pid in seen_pids:  # a playlist can appear on several pages
+            continue
+        seen_pids.add(pid)
         if pid in playlist_tracks_cache:
             if track_uri in playlist_tracks_cache[pid]:
                 active_ids.append(pid)
@@ -625,9 +707,16 @@ def check_playlists():
             # Cache not ready for this playlist, need to check live
             playlists_to_check_live.append((pid, pl['spotify_name']))
 
-    # For playlists not in cache, do a live check
+    # For playlists not in cache, do a live check — but bounded: on a
+    # first-ever run nothing is cached yet and live-checking all ~80
+    # playlists would hammer the API. Anything beyond the cap is skipped;
+    # the "warming" X-Cache-State below makes the frontend re-check as the
+    # background warm-up progressively fills the cache.
+    MAX_LIVE_CHECKS = 8
+    skipped_live = max(0, len(playlists_to_check_live) - MAX_LIVE_CHECKS)
+    playlists_to_check_live = playlists_to_check_live[:MAX_LIVE_CHECKS]
     if playlists_to_check_live:
-        print(f"Cache incomplete, checking {len(playlists_to_check_live)} playlists live...")
+        print(f"Cache incomplete, checking {len(playlists_to_check_live)} playlists live ({skipped_live} deferred to warm-up)...")
         for pid, sname in playlists_to_check_live:
             try:
                 # Check if track is in this playlist
@@ -649,7 +738,10 @@ def check_playlists():
             except Exception as e:
                 print(f"Error checking playlist {sname} live: {e}")
 
-    return jsonify(active_ids)
+    response = jsonify(active_ids)
+    warming = loading_state != "done" or cache_fill_pending > 0 or skipped_live > 0
+    response.headers['X-Cache-State'] = 'warming' if warming else 'ready'
+    return response
 
 
 @app.route('/api/extract-color')
@@ -801,6 +893,7 @@ def toggle_playlist():
         else:
             return jsonify({"error": "Invalid action"}), 400
 
+        save_playlist_cache_to_disk()
         invalidate_current_track_cache()  # is_liked may have changed
         return jsonify({"success": True, "message": message, "artist_followed": artist_followed})
 
@@ -868,6 +961,7 @@ def toggle_album_playlist():
         else:
             return jsonify({"error": "Invalid action"}), 400
 
+        save_playlist_cache_to_disk()
         return jsonify({"success": True, "message": message, "track_count": len(track_uris)})
 
     except Exception as e:

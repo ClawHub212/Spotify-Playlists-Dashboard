@@ -15,6 +15,13 @@ window.fetch = async (...args) => {
   return res;
 };
 
+// Native loading screen readiness flags. Declared explicitly as false so the
+// Swift poll can distinguish "this frontend gates the grid" (false until real
+// tiles render) from an older frontend that never defines __gridReady (the
+// poll treats undefined as ready to stay compatible either way).
+window.__trackReady = false;
+window.__gridReady = false;
+
 // State
 let currentTrack = null;
 let allPlaylists = [];
@@ -37,6 +44,28 @@ document.addEventListener("DOMContentLoaded", () => {
   document.addEventListener("visibilitychange", handleVisibilityChange);
   generateWaveformBars();
   init();
+});
+
+// The grid's column count adapts to the available height (see renderPlaylists)
+// — recompute when the layout box actually changes. A ResizeObserver on the
+// section catches every cause (window resize, zoom, sidebar) — re-rendering
+// only mutates the grid's children, so it can't re-trigger the observer.
+let resizeRerenderTimer = null;
+function scheduleGridRerender() {
+  clearTimeout(resizeRerenderTimer);
+  resizeRerenderTimer = setTimeout(() => {
+    if (allPlaylists.length > 0) renderPlaylists();
+  }, 150);
+}
+document.addEventListener("DOMContentLoaded", () => {
+  // Both sources funnel into the same debounced rerender: the window event
+  // covers plain resizes for certain; the observer additionally catches
+  // section-box changes with no resize event (zoom, future layout shifts).
+  window.addEventListener("resize", scheduleGridRerender);
+  const section = document.querySelector(".playlist-section");
+  if (section && typeof ResizeObserver !== "undefined") {
+    new ResizeObserver(scheduleGridRerender).observe(section);
+  }
 });
 
 /**
@@ -91,6 +120,15 @@ let playlistRetryCount = 0;
 const MAX_PLAYLIST_RETRIES = 30;
 let playlistsLoaded = false; // true once fetchPlaylists has real data
 
+// Read page identity from data attribute — works for any page defined in config.json.
+// Falls back to body class checks for backward compatibility with existing HTML files.
+function getPageId() {
+  return document.body.dataset.pageId
+    || (document.body.classList.contains("tracker-page") ? "tracker"
+      : document.body.classList.contains("queue-page") ? "queue"
+      : "playlists");
+}
+
 async function init() {
   // Instant render on page switches: every page is a full document load, so
   // without this the header sits on "Loading..." until the first poll returns.
@@ -101,32 +139,52 @@ async function init() {
     if (cached && cached.track && Date.now() - cached.ts < 60000) {
       currentTrack = cached.track;
       updateTrackInfo(cached.track);
+      // Restore which tiles were lit for this track too, so the actives don't
+      // flash off and back on while the fresh check is in flight.
+      try {
+        const act = JSON.parse(localStorage.getItem("lastActiveIds") || "null");
+        if (act && act.uri === cached.track.uri && Array.isArray(act.ids)) {
+          activePlaylistsMap = new Set(act.ids);
+        }
+      } catch (e) { /* nonfatal */ }
       checkPlaylists(cached.track.uri);
     }
   } catch (e) {
     console.warn("Failed to restore last known track:", e);
   }
 
+  // Instant grid, same idea as the header: render the last known playlist
+  // list for this page from localStorage — the config rarely changes between
+  // loads, and fetchPlaylists() corrects the grid if it did. The skeleton
+  // only ever shows on a true first run (nothing cached yet).
+  try {
+    const cachedGrid = JSON.parse(
+      localStorage.getItem(`cachedPlaylists.${getPageId()}`) || "null",
+    );
+    if (cachedGrid && Array.isArray(cachedGrid.playlists) && cachedGrid.playlists.length > 0) {
+      allPlaylists = cachedGrid.playlists;
+      renderPlaylists();
+    }
+  } catch (e) {
+    console.warn("Failed to restore cached playlists:", e);
+  }
+
   // Start polling for the current track immediately — it only needs the
   // backend to be up, not the (slow) playlist warm-up. The native loading
-  // screen watches window.__trackReady so the track is visible the moment
-  // the loading animation completes.
+  // screen watches window.__trackReady AND window.__gridReady so both the
+  // track header and the real playlist tiles (not the skeleton) are visible
+  // the moment the loading animation completes.
   pollCurrentTrack();
 
-  // Fetch playlists in parallel; the grid shows a skeleton until data lands.
-  renderSkeletonGrid();
+  // Fetch playlists in parallel; the grid shows a skeleton until data lands
+  // (only when there was no cached list to render above).
+  if (allPlaylists.length === 0) renderSkeletonGrid();
   fetchPlaylists();
 }
 
 async function fetchPlaylists() {
   try {
-    // Read page identity from data attribute — works for any page defined in config.json.
-    // Falls back to body class checks for backward compatibility with existing HTML files.
-    const pageId = document.body.dataset.pageId
-      || (document.body.classList.contains("tracker-page") ? "tracker"
-        : document.body.classList.contains("queue-page") ? "queue"
-        : "playlists");
-
+    const pageId = getPageId();
     const endpoint = `/api/page/${pageId}/playlists`;
 
     const res = await fetch(endpoint);
@@ -140,39 +198,58 @@ async function fetchPlaylists() {
 
     if (!res.ok) throw new Error(`Failed to fetch playlists: ${res.status}`);
 
-    allPlaylists = await res.json();
+    // Keep the fetched list local until it has data — an empty interim
+    // response must not clobber the cached list already on screen.
+    const fetched = await res.json();
 
     // Check if backend is still loading playlists
     const loadingState = res.headers.get("X-Loading-State");
     const backendStillLoading = loadingState === "loading";
 
-    if (allPlaylists.length === 0) {
+    if (fetched.length === 0) {
+      // Only show the skeleton if nothing is rendered yet (no cached grid).
+      const showSkeleton = () => {
+        if (allPlaylists.length === 0) renderSkeletonGrid();
+      };
       if (backendStillLoading) {
         // Backend is still loading — keep retrying without counting toward limit
         console.log("Backend still loading playlists, retrying in 2s...");
-        renderSkeletonGrid();
+        showSkeleton();
         setTimeout(fetchPlaylists, 2000);
       } else {
         // Backend finished loading but returned 0 — count retries
         playlistRetryCount++;
         if (playlistRetryCount <= MAX_PLAYLIST_RETRIES) {
           console.log(`Playlists not ready yet, retrying in 2s... (attempt ${playlistRetryCount}/${MAX_PLAYLIST_RETRIES})`);
-          renderSkeletonGrid();
+          showSkeleton();
           setTimeout(fetchPlaylists, 2000);
-        } else {
+        } else if (allPlaylists.length === 0) {
           console.warn("Warning: Received 0 playlists after all retries");
           renderGridMessage("NO PLAYLISTS FOUND — CHECK BACKEND LOGS", "error");
         }
       }
     } else {
+      allPlaylists = fetched;
       playlistRetryCount = 0;
       playlistsLoaded = true;
+      // Remember for instant rendering on the next page load
+      try {
+        localStorage.setItem(
+          `cachedPlaylists.${getPageId()}`,
+          JSON.stringify({ ts: Date.now(), playlists: fetched }),
+        );
+      } catch (e) { /* storage full/unavailable — nonfatal */ }
       // Render immediately (all inactive initially) for speed
       renderPlaylists();
     }
   } catch (e) {
     console.error("Error in fetchPlaylists:", e);
-    renderGridMessage(`ERROR LOADING PLAYLISTS — ${e.message}`, "error");
+    // A cached grid is better than an error screen — keep it and retry.
+    if (allPlaylists.length === 0) {
+      renderGridMessage(`ERROR LOADING PLAYLISTS — ${e.message}`, "error");
+    } else {
+      setTimeout(fetchPlaylists, 5000);
+    }
   }
 }
 
@@ -416,6 +493,8 @@ async function pollCurrentTrack() {
   setTimeout(pollCurrentTrack, pollInterval);
 }
 
+let cacheWarmupRecheckTimer = null;
+
 async function checkPlaylists(trackUri) {
   try {
     const res = await fetch(
@@ -424,7 +503,26 @@ async function checkPlaylists(trackUri) {
     if (res.ok) {
       const activeIds = await res.json();
       activePlaylistsMap = new Set(activeIds);
+      // Remember for instant active-state restore on the next page load
+      try {
+        localStorage.setItem(
+          "lastActiveIds",
+          JSON.stringify({ ts: Date.now(), uri: trackUri, ids: activeIds }),
+        );
+      } catch (e) { /* nonfatal */ }
       renderPlaylists();
+
+      // While the backend's per-playlist track caches are still warming
+      // (launch with a stale persisted cache, or a first run with none),
+      // the answer may be incomplete — re-check until it reports fresh data.
+      if (res.headers.get("X-Cache-State") === "warming") {
+        clearTimeout(cacheWarmupRecheckTimer);
+        cacheWarmupRecheckTimer = setTimeout(() => {
+          if (currentTrack && currentTrack.uri === trackUri) {
+            checkPlaylists(trackUri);
+          }
+        }, 10000);
+      }
     }
   } catch (e) {
     console.error("Error checking playlists:", e);
@@ -605,6 +703,9 @@ function renderGridMessage(message, kind = "") {
   div.textContent = message;
   grid.innerHTML = "";
   grid.appendChild(div);
+  // A terminal error is a settled state — don't leave the native loading
+  // screen hanging on __gridReady (its 15s cap would lift it anyway).
+  if (kind === "error") window.__gridReady = true;
 }
 
 // The NAGA playlists ("NAGA NEXT SHOW" and "NAGA NEXT SHOW - PACK") are special:
@@ -792,6 +893,26 @@ function renderPlaylists() {
         inactiveGroup.appendChild(createItem(p)),
       );
       grid.appendChild(inactiveGroup);
+
+      // Fit guarantee: 3 columns is the default, but on a short window the
+      // rows would compress below a readable tile height (the page used to
+      // crop the bottom instead — 08-28-26). Width is the abundant dimension
+      // here, so add columns until every row keeps at least a full text line,
+      // capped so columns stay wide enough for names to remain useful.
+      const cs = getComputedStyle(inactiveGroup);
+      const gap = parseFloat(cs.rowGap) || 0;
+      const nameEl = inactiveGroup.querySelector(".playlist-name");
+      const fontPx = nameEl ? parseFloat(getComputedStyle(nameEl).fontSize) : 16;
+      const minRow = Math.ceil(fontPx * 1.3) + 12; // text line + padding + borders
+      const avail = inactiveGroup.clientHeight; // flex-allocated, independent of row count
+      const n = inactivePlaylists.length;
+      const maxRows = Math.max(1, Math.floor((avail + gap) / (minRow + gap)));
+      const colsByWidth = Math.max(3, Math.floor(inactiveGroup.clientWidth / 260));
+      const cols = Math.min(Math.max(3, Math.ceil(n / maxRows)), colsByWidth);
+      if (cols > 3) {
+        inactiveGroup.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+        inactiveGroup.style.gridTemplateRows = `repeat(${Math.ceil(n / cols)}, minmax(0, 1fr))`;
+      }
     }
   }
 
@@ -807,6 +928,10 @@ function renderPlaylists() {
 
   // One-shot save animation should only play on the render right after a save.
   justSavedId = null;
+
+  // Real tiles are on screen (not the skeleton) — the native loading screen
+  // waits on this alongside __trackReady before lifting.
+  window.__gridReady = true;
 }
 
 async function togglePlaylist(playlist) {

@@ -52,6 +52,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         set { UserDefaults.standard.set(newValue, forKey: "floatOnTop") }
     }
 
+    // MARK: - Loader diagnostics
+
+    /// Append a timestamped line to <projectRoot>/loader-debug.log (gitignored
+    /// via *.log). The loading-screen flow has repeatedly failed in ways that
+    /// are invisible after the fact — this file records which dismissal path
+    /// fired and what the readiness flags said, so a "skeleton after the
+    /// loader" report can be diagnosed from disk instead of guesswork.
+    private func loaderLog(_ message: String) {
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
+        let line = "\(df.string(from: Date())) \(message)\n"
+        guard let root = backendManager?.projectRoot,
+              let data = line.data(using: .utf8) else { return }
+        let url = URL(fileURLWithPath: root).appendingPathComponent("loader-debug.log")
+        if let handle = try? FileHandle(forWritingTo: url) {
+            handle.seekToEndOfFile()
+            handle.write(data)
+            try? handle.close()
+        } else {
+            try? data.write(to: url)
+        }
+    }
+
     // MARK: - Application Lifecycle
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -105,12 +128,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Backend readiness only fills the ring to 60% — the remainder is
         // filled while waiting for the current track to render, so the ring
         // completing coincides with the track actually being on screen.
+        // Read the env var directly — isBackgroundLaunch is one-shot and was
+        // already consumed by showWindowOnCurrentScreen() above.
+        let bgEnv = ProcessInfo.processInfo.environment["SPOTIFY_DASHBOARD_BACKGROUND_LAUNCH"] != nil
+        loaderLog("launch: loading screen up (backgroundLaunch=\(bgEnv))")
         backendManager.waitForReady(progress: { [weak self] progress in
             DispatchQueue.main.async {
                 self?.loadingViewController?.setProgress(CGFloat(progress) * 0.6)
             }
         }) { [weak self] in
             DispatchQueue.main.async {
+                self?.loaderLog("backend ready — checking auth")
                 self?.checkAuthAndProceed()
             }
         }
@@ -174,6 +202,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showAuthPanel() {
+        loaderLog("dismissing loading screen: auth panel path")
         // Dismiss loading screen first
         loadingViewController?.dismiss { [weak self] in
             self?.loadingViewController = nil
@@ -190,15 +219,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let initialPage = pendingInitialPage ?? .playlists
         pendingInitialPage = nil
         hasLoadedInitialPage = true
+        loaderLog("auth ok — loading page '\(initialPage.rawValue)', polling readiness flags")
         webViewController.loadPage(initialPage)
 
-        // Poll the WebView until the currently playing track has actually
-        // been rendered (script.js sets window.__trackReady once the header
-        // shows the track, or a settled "nothing playing"). This way the
-        // loading screen lifts exactly when the track is visible.
-        let maxAttempts = 75  // 75 × 0.2s = 15s safety cap
+        // Poll the WebView until the page is genuinely ready: script.js sets
+        // window.__trackReady once the header shows the track (or a settled
+        // "nothing playing"), and window.__gridReady once the real playlist
+        // tiles have rendered (not the skeleton placeholders). Waiting for
+        // both means the loading screen lifts onto a finished page — no
+        // second "playlist loading" animation after the loader (08-28-26).
+        // __gridReady is compared against `false` (not `=== true`) so a
+        // frontend that predates the flag (undefined) doesn't stall the
+        // loader until the cap — it just falls back to the track-only gate.
+        let maxAttempts = 150  // 150 × 0.2s = 30s safety cap
         func checkWebViewReady(attemptsLeft: Int) {
             guard attemptsLeft > 0 else {
+                self.loaderLog("dismissing loading screen: CAP hit after \(Int(Double(maxAttempts) * 0.2))s — page never reported ready")
                 self.loadingViewController?.dismiss { [weak self] in
                     self?.loadingViewController = nil
                 }
@@ -209,15 +245,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let waited = CGFloat(maxAttempts - attemptsLeft) / CGFloat(maxAttempts)
             self.loadingViewController?.setProgress(0.6 + 0.35 * waited)
 
-            let js = "window.__trackReady === true"
+            let js = "'' + (window.__trackReady === true) + '|' + (window.__gridReady !== false)"
             self.webViewController.webView.evaluateJavaScript(js) { [weak self] (result, _) in
-                if let ready = result as? Bool, ready {
+                let parts = (result as? String)?.split(separator: "|").map(String.init) ?? []
+                let trackReady = parts.first == "true"
+                let gridReady = parts.count > 1 && parts[1] == "true"
+                let attempt = maxAttempts - attemptsLeft + 1
+                if trackReady && gridReady {
+                    self?.loaderLog("dismissing loading screen: page ready after \(String(format: "%.1f", Double(attempt) * 0.2))s")
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                         self?.loadingViewController?.dismiss {
                             self?.loadingViewController = nil
                         }
                     }
                 } else {
+                    if attempt % 25 == 0 {  // every ~5s while waiting
+                        self?.loaderLog("still waiting at \(Int(Double(attempt) * 0.2))s: trackReady=\(trackReady) gridReady=\(gridReady) rawResult=\(result.map(String.init(describing:)) ?? "nil")")
+                    }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                         checkWebViewReady(attemptsLeft: attemptsLeft - 1)
                     }

@@ -353,7 +353,12 @@ body.sidebar-open .current-track {
 .playlist-grid {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  /* Fill the section space REMAINING below the actions row. height: 100%
+     here sized the grid to the full section and pushed the last rows past
+     the section's overflow clip — the bottom of the page looked cropped at
+     every window size (08-28-26). */
+  flex: 1 1 auto;
+  min-height: 0;
   gap: clamp(4px, 0.5vh, 8px);
 }
 
