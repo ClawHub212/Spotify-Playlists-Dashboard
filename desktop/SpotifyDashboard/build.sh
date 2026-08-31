@@ -161,6 +161,10 @@ swiftc \
     -O \
     "${SWIFT_FILES[@]}"
 
+# Native macOS 26 icon fallback (compiled car) — see ~/.claude/skills/mac-app-icons
+_icon_ensure="$HOME/.claude/skills/mac-app-icons/scripts/ensure-native-icon.sh"
+[ -x "$_icon_ensure" ] && "$_icon_ensure" "$RESOURCES_DIR" "$APP_BUNDLE" || true
+
 # Ad-hoc code sign
 echo "[3/5] Code signing..."
 codesign --force --sign - "$APP_BUNDLE"
@@ -179,6 +183,11 @@ if rm -rf "$INSTALLED_APP" 2>/dev/null && ditto "$APP_BUNDLE" "$INSTALLED_APP" 2
     rm -rf "$APP_BUNDLE"
     LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
     [ -x "$LSREGISTER" ] && "$LSREGISTER" -f "$INSTALLED_APP" >/dev/null 2>&1 || true
+    # Finder icon: stamp the repo's chosen style (Resources/.icon-style = dering) on
+    # the INSTALLED bundle — macOS's own icon slab always paints a light edge ring,
+    # and custom icons render literally. Stamped after install/signing so the bit
+    # lands on the final bundle; Assets.car stays as the stamp-missing fallback.
+    [ -x "$_icon_ensure" ] && "$_icon_ensure" --stamp "$RESOURCES_DIR" "$INSTALLED_APP" || true
     echo "Installed: $INSTALLED_APP  (staging copy removed — /Applications is the only bundle)"
     FINAL_APP="$INSTALLED_APP"
 else
