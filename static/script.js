@@ -31,6 +31,7 @@ let animateNextRender = true; // stagger tile entry on track changes, not on eve
 let colorCache = {}; // Cache extracted colors by track ID
 let editMode = false; // Playlists page: tiles open the editor instead of toggling the track
 let spotifyMode = false; // Playlists page: tiles open in the Spotify desktop app instead of toggling
+let gridFilterQuery = ""; // Playlists page: live name filter typed into the toolbar box (session-only)
 
 // Load color cache from localStorage
 try {
@@ -364,6 +365,10 @@ function applyTheme(theme) {
     localStorage.setItem(THEME_KEY, currentTheme);
   } catch (e) { /* nonfatal */ }
   updateThemeToggleUI();
+  // Let the native shell mirror it (Themes menu check, Settings window).
+  try {
+    window.webkit?.messageHandlers?.dashboard?.postMessage({ type: "theme", theme: currentTheme });
+  } catch (e) { /* plain browser */ }
   // Re-tint the album background for the new substrate; with no album color
   // yet, drop any inline background so the per-theme CSS default shows.
   if (lastAlbumColor) applyDynamicBackground(lastAlbumColor);
@@ -745,6 +750,7 @@ function renderPlaylists() {
     if (isActive) item.classList.add("active");
     if (justSaved) item.classList.add("just-saved");
     if (isSpecialPlaylist(playlist)) item.classList.add("naga-special");
+    item.dataset.name = playlist.name || "";
 
     if (editMode && !isTracker && !isQueue) {
       item.classList.add("editable");
@@ -929,9 +935,179 @@ function renderPlaylists() {
   // One-shot save animation should only play on the render right after a save.
   justSavedId = null;
 
+  // A typed filter survives every re-render (toggles, polling, track changes)
+  // — it hides tiles on top of the layout rather than changing what renders.
+  applyGridFilter();
+
   // Real tiles are on screen (not the skeleton) — the native loading screen
   // waits on this alongside __trackReady before lifting.
   window.__gridReady = true;
+}
+
+// ============================================
+// Grid filter (playlists page)
+// Type in the toolbar box and the grid narrows live to the tiles whose name
+// contains every typed word (case- and accent-insensitive), with the hits
+// highlighted. Non-matching tiles are hidden in place, so the layout math in
+// renderPlaylists (row/column counts) stays exactly as it is unfiltered and
+// tiles never resize under the cursor. Session-only — never persisted.
+// ============================================
+function normalizeForFilter(s) {
+  return String(s || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function gridFilterTerms() {
+  return normalizeForFilter(gridFilterQuery).split(/\s+/).filter(Boolean);
+}
+
+// Rebuild a tile's name with <mark> around every matched run. Falls back to
+// plain text when normalization changed the string length (ligatures etc.),
+// where character offsets could no longer be trusted.
+function renderHighlightedName(el, name, terms) {
+  if (terms.length === 0) {
+    if (el.firstElementChild || el.textContent !== name) el.textContent = name;
+    return;
+  }
+  const norm = normalizeForFilter(name);
+  if (norm.length !== name.length) {
+    el.textContent = name;
+    return;
+  }
+  const hit = new Array(name.length).fill(false);
+  for (const t of terms) {
+    let i = norm.indexOf(t);
+    while (i !== -1) {
+      for (let k = i; k < i + t.length; k++) hit[k] = true;
+      i = norm.indexOf(t, i + 1);
+    }
+  }
+  el.textContent = "";
+  let i = 0;
+  while (i < name.length) {
+    let j = i;
+    while (j < name.length && hit[j] === hit[i]) j++;
+    const chunk = name.slice(i, j);
+    if (hit[i]) {
+      const m = document.createElement("mark");
+      m.className = "filter-hit";
+      m.textContent = chunk;
+      el.appendChild(m);
+    } else {
+      el.appendChild(document.createTextNode(chunk));
+    }
+    i = j;
+  }
+}
+
+function applyGridFilter() {
+  const grid = document.getElementById("playlist-grid");
+  const box = document.getElementById("grid-filter");
+  if (!grid || !box) return; // Tracker/Queue have no filter box
+
+  const terms = gridFilterTerms();
+  const filtering = terms.length > 0;
+  box.classList.toggle("active", filtering);
+  document.body.classList.toggle("grid-filtering", filtering);
+
+  const tiles = grid.querySelectorAll(".playlist-item");
+  let shown = 0;
+  tiles.forEach((tile) => {
+    const nameEl = tile.querySelector(".playlist-name");
+    const name = tile.dataset.name || (nameEl ? nameEl.textContent : "");
+    const norm = normalizeForFilter(name);
+    const match = !filtering || terms.every((t) => norm.includes(t));
+    tile.classList.toggle("filtered-out", !match);
+    if (nameEl) renderHighlightedName(nameEl, name, match ? terms : []);
+    if (match) shown++;
+  });
+
+  // A group with nothing left to show collapses, and so does the divider
+  // between the groups when either side is gone.
+  let anyGroupEmpty = false;
+  grid.querySelectorAll(".active-group, .inactive-group").forEach((g) => {
+    const empty = filtering && !g.querySelector(".playlist-item:not(.filtered-out)");
+    g.classList.toggle("filter-empty", empty);
+    if (empty) anyGroupEmpty = true;
+  });
+  const divider = grid.querySelector(".playlist-divider");
+  if (divider) divider.classList.toggle("filter-empty", anyGroupEmpty);
+
+  // Empty state — only once real tiles exist (never over the skeleton/messages)
+  let empty = grid.querySelector(".grid-filter-empty");
+  if (filtering && shown === 0 && tiles.length > 0) {
+    if (!empty) {
+      empty = document.createElement("div");
+      empty.className = "grid-message grid-filter-empty";
+      grid.appendChild(empty);
+    }
+    empty.textContent = `NO PLAYLISTS MATCH \u201C${gridFilterQuery.trim().toUpperCase()}\u201D`;
+  } else if (empty) {
+    empty.remove();
+  }
+
+  const count = document.getElementById("grid-filter-count");
+  if (count) {
+    count.hidden = !filtering;
+    count.textContent = `${shown} / ${tiles.length}`;
+  }
+  const clear = document.getElementById("grid-filter-clear");
+  if (clear) clear.hidden = !filtering;
+}
+
+function setGridFilter(value) {
+  gridFilterQuery = value || "";
+  const input = document.getElementById("grid-filter-input");
+  if (input && input.value !== gridFilterQuery) input.value = gridFilterQuery;
+  applyGridFilter();
+}
+
+function clearGridFilter() {
+  setGridFilter("");
+}
+
+// F (rebindable) and ⌘F land here: focus the box with its text selected so
+// a new search just overwrites the old one.
+function focusGridFilter() {
+  const input = document.getElementById("grid-filter-input");
+  if (!input) return;
+  input.focus();
+  input.select();
+}
+
+function initGridFilter() {
+  const input = document.getElementById("grid-filter-input");
+  const clearBtn = document.getElementById("grid-filter-clear");
+  if (!input) return;
+
+  input.addEventListener("input", () => setGridFilter(input.value));
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      // First Esc clears the text, a second one hands focus back to the grid
+      e.preventDefault();
+      e.stopPropagation();
+      if (input.value) clearGridFilter();
+      else input.blur();
+    } else if (e.key === "Enter") {
+      // Exactly one tile left: Enter acts on it — the same as clicking it,
+      // so it honors whichever mode is armed (toggle / edit / open in Spotify).
+      const visible = document.querySelectorAll(
+        "#playlist-grid .playlist-item:not(.filtered-out)",
+      );
+      if (visible.length === 1) {
+        e.preventDefault();
+        visible[0].click();
+      }
+    }
+  });
+  if (clearBtn) {
+    clearBtn.addEventListener("click", () => {
+      clearGridFilter();
+      input.focus();
+    });
+  }
 }
 
 async function togglePlaylist(playlist) {
@@ -1677,6 +1853,8 @@ function initPlaylistEditor() {
 
   const search = document.getElementById("editor-spotify-search");
   search.addEventListener("input", () => renderSpotifyPicker(search.value));
+
+  initGridFilter();
 }
 
 // Shortcuts run on every page (theme toggle is global); the modal wiring
@@ -1749,68 +1927,35 @@ function toggleSpotifyMode() {
 // Defaults: N = new, E = edit, S = spotify. Click-to-record in the
 // KEYBOARD SHORTCUTS modal; persisted in localStorage.
 // ============================================
-const SHORTCUTS_STORAGE_KEY = "gridShortcuts.v1";
-const SHORTCUT_DEFAULTS = {
-  new: { key: "n", meta: false, ctrl: false, alt: false, shift: false },
-  edit: { key: "e", meta: false, ctrl: false, alt: false, shift: false },
-  cancel: { key: "c", meta: false, ctrl: false, alt: false, shift: false },
-  spotify: { key: "s", meta: false, ctrl: false, alt: false, shift: false },
-  theme: { key: "l", meta: true, ctrl: false, alt: false, shift: true },
-};
-let gridShortcuts = loadGridShortcuts();
-let recordingAction = null; // action id while a recorder is capturing
+// The model (defaults, storage key, labels, matching) lives in
+// grid-shortcuts.js, shared with the Settings page — the one place they are
+// edited. These aliases keep the call sites below unchanged.
+const SHORTCUTS_STORAGE_KEY = GridShortcuts.STORAGE_KEY;
+const SHORTCUT_DEFAULTS = GridShortcuts.DEFAULTS;
+let gridShortcuts = GridShortcuts.load();
+const shortcutLabel = GridShortcuts.label;
+const matchesShortcut = GridShortcuts.matches;
 
-function loadGridShortcuts() {
-  try {
-    const stored = JSON.parse(localStorage.getItem(SHORTCUTS_STORAGE_KEY) || "{}");
-    const merged = {};
-    for (const action of Object.keys(SHORTCUT_DEFAULTS)) {
-      const s = stored[action];
-      merged[action] =
-        s && typeof s.key === "string" && s.key
-          ? { key: s.key, meta: !!s.meta, ctrl: !!s.ctrl, alt: !!s.alt, shift: !!s.shift }
-          : { ...SHORTCUT_DEFAULTS[action] };
-    }
-    return merged;
-  } catch (e) {
-    return shortcutDefaultsCopy();
-  }
+// Settings (native window, or the /settings tab in a browser) rewrote the
+// stored shortcuts — pick them up without a page reload.
+function reloadGridShortcuts() {
+  gridShortcuts = GridShortcuts.load();
+  refreshShortcutLabels();
 }
 
-function shortcutDefaultsCopy() {
-  const copy = {};
-  for (const action of Object.keys(SHORTCUT_DEFAULTS)) {
-    copy[action] = { ...SHORTCUT_DEFAULTS[action] };
-  }
-  return copy;
-}
-
-function saveGridShortcuts() {
-  try {
-    localStorage.setItem(SHORTCUTS_STORAGE_KEY, JSON.stringify(gridShortcuts));
-  } catch (e) { /* storage unavailable — nonfatal */ }
-}
-
-function shortcutLabel(sc) {
-  const specials = {
-    " ": "Space", enter: "↩", escape: "Esc", backspace: "⌫", delete: "⌦",
-    tab: "⇥", arrowup: "↑", arrowdown: "↓", arrowleft: "←", arrowright: "→",
-  };
-  const k = sc.key.toLowerCase();
-  const keyName = specials[k] || sc.key.toUpperCase();
-  return (
-    (sc.ctrl ? "⌃" : "") + (sc.alt ? "⌥" : "") +
-    (sc.shift ? "⇧" : "") + (sc.meta ? "⌘" : "") + keyName
-  );
-}
+// Same-origin documents (the /settings tab in a plain browser) announce their
+// writes through the storage event; the native app calls the functions above
+// directly, so nothing double-fires there.
+window.addEventListener("storage", (e) => {
+  if (e.key === SHORTCUTS_STORAGE_KEY) reloadGridShortcuts();
+  if (e.key === THEME_KEY && e.newValue) applyTheme(e.newValue);
+});
 
 function refreshShortcutLabels() {
   for (const action of Object.keys(gridShortcuts)) {
     const label = shortcutLabel(gridShortcuts[action]);
     const hint = document.getElementById(`key-hint-${action}`);
     if (hint) hint.textContent = label;
-    const recorder = document.getElementById(`recorder-${action}`);
-    if (recorder && recordingAction !== action) recorder.textContent = label;
   }
   // Surface the live shortcut in each button's tooltip
   const tips = {
@@ -1818,6 +1963,7 @@ function refreshShortcutLabels() {
     edit: ["edit-mode-btn", "Toggle edit mode"],
     cancel: ["cancel-mode-btn", "Leave the armed mode — Esc does this too"],
     spotify: ["spotify-mode-btn", "Toggle open-in-Spotify mode — clicking a playlist opens it in the Spotify app"],
+    find: ["grid-filter-input", "Filter the playlists by name — / and ⌘F focus this too"],
   };
   for (const action of Object.keys(tips)) {
     const [id, desc] = tips[action];
@@ -1827,111 +1973,51 @@ function refreshShortcutLabels() {
   updateThemeToggleUI(); // theme button's tooltip carries its live shortcut
 }
 
-function matchesShortcut(e, sc) {
-  return (
-    e.key.toLowerCase() === sc.key.toLowerCase() &&
-    e.metaKey === sc.meta && e.ctrlKey === sc.ctrl &&
-    e.altKey === sc.alt && e.shiftKey === sc.shift
-  );
-}
-
 function initGridShortcuts() {
-  // The keydown dispatcher runs on EVERY page (the theme shortcut is global);
-  // the customization modal only exists on the playlists page.
+  // The keydown dispatcher runs on EVERY page (the theme shortcut is global).
   document.addEventListener("keydown", handleShortcutKeydown, true);
 
-  const overlay = document.getElementById("shortcuts-overlay");
+  // Shortcuts are customized in Settings. Inside the native app that is the
+  // Settings window (⌘, / ⌘`), so the toolbar entry point hides there; in a
+  // plain browser it opens the same Settings page in a new tab.
   const openBtn = document.getElementById("shortcuts-btn");
-  if (!overlay || !openBtn) {
-    updateThemeToggleUI();
-    return;
+  if (openBtn) {
+    if (window.__nativeApp) openBtn.style.display = "none";
+    else openBtn.addEventListener("click", () => window.open("/settings", "_blank"));
   }
 
-  openBtn.addEventListener("click", openShortcutsModal);
-
-  // Inside the native app the entry point lives in the Settings window
-  // (Spotify Dashboard → Settings → Grid Shortcuts), so hide the toolbar
-  // icon there; it stays for plain-browser use.
-  if (window.__nativeApp) openBtn.style.display = "none";
-  document.getElementById("shortcuts-close").addEventListener("click", closeShortcutsModal);
-  document.getElementById("shortcuts-reset").addEventListener("click", () => {
-    gridShortcuts = shortcutDefaultsCopy();
-    stopRecording();
-    saveGridShortcuts();
-    refreshShortcutLabels();
-  });
-  overlay.addEventListener("click", (e) => {
-    if (e.target === overlay) closeShortcutsModal();
-  });
-
-  for (const action of Object.keys(SHORTCUT_DEFAULTS)) {
-    const recorder = document.getElementById(`recorder-${action}`);
-    if (!recorder) continue;
-    recorder.addEventListener("click", () => {
-      if (recordingAction === action) return;
-      stopRecording();
-      recordingAction = action;
-      recorder.classList.add("recording");
-      recorder.textContent = "PRESS KEYS…";
-    });
-  }
-
-  refreshShortcutLabels();
-}
-
-// Also called from the native Settings window ("Grid Shortcuts → Customize…")
-function openShortcutsModal() {
-  const overlay = document.getElementById("shortcuts-overlay");
-  if (!overlay) return;
-  overlay.hidden = false;
-  refreshShortcutLabels();
-}
-
-function closeShortcutsModal() {
-  stopRecording();
-  const overlay = document.getElementById("shortcuts-overlay");
-  if (overlay) overlay.hidden = true;
-}
-
-function stopRecording() {
-  if (!recordingAction) return;
-  const recorder = document.getElementById(`recorder-${recordingAction}`);
-  if (recorder) recorder.classList.remove("recording");
-  recordingAction = null;
   refreshShortcutLabels();
 }
 
 function handleShortcutKeydown(e) {
-  const shortcutsOverlay = document.getElementById("shortcuts-overlay");
   const editorOverlay = document.getElementById("playlist-editor-overlay");
-
-  // A recorder is capturing: the next non-modifier key becomes the shortcut.
-  if (recordingAction) {
-    e.preventDefault();
-    e.stopPropagation();
-    if (["Meta", "Control", "Alt", "Shift"].includes(e.key)) return; // wait for a real key
-    if (e.key === "Escape") {
-      stopRecording();
-      return;
-    }
-    gridShortcuts[recordingAction] = {
-      key: e.key, meta: e.metaKey, ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey,
-    };
-    saveGridShortcuts();
-    stopRecording();
-    return;
-  }
-
-  // Esc closes the shortcuts modal
-  if (shortcutsOverlay && !shortcutsOverlay.hidden) {
-    if (e.key === "Escape") closeShortcutsModal();
-    return; // no shortcuts fire while the modal is open
-  }
 
   // Don't fire while typing or while the editor modal is open
   if (editorOverlay && !editorOverlay.hidden) return;
+
+  // ⌘F is the always-on twin of the FIND shortcut (find-on-page muscle
+  // memory). It runs before the typing guard so ⌘F inside the box re-selects
+  // the text for a fresh search.
+  const isGridPage = document.getElementById("add-playlist-btn") !== null;
+  if (
+    isGridPage && e.metaKey && !e.altKey && !e.ctrlKey && !e.shiftKey &&
+    e.key.toLowerCase() === "f"
+  ) {
+    e.preventDefault();
+    focusGridFilter();
+    return;
+  }
+
   const t = e.target;
   if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+
+  // "/" is the other always-on way into the filter (search-box convention);
+  // the F keycap on the box stays the advertised shortcut.
+  if (isGridPage && e.key === "/" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    e.preventDefault();
+    focusGridFilter();
+    return;
+  }
 
   // Theme works everywhere; NEW/EDIT/SPOTIFY only on the playlists grid page
   if (matchesShortcut(e, gridShortcuts.theme)) {
@@ -1940,7 +2026,6 @@ function handleShortcutKeydown(e) {
     return;
   }
 
-  const isGridPage = document.getElementById("add-playlist-btn") !== null;
   if (!isGridPage) return;
 
   // Esc is the always-on twin of the CANCEL button; the customizable CANCEL
@@ -1948,6 +2033,12 @@ function handleShortcutKeydown(e) {
   if (e.key === "Escape" && (editMode || spotifyMode)) {
     e.preventDefault();
     cancelArmedMode();
+    return;
+  }
+  // No mode armed: Esc from the grid clears a lingering filter
+  if (e.key === "Escape" && gridFilterQuery) {
+    e.preventDefault();
+    clearGridFilter();
     return;
   }
 
@@ -1963,6 +2054,9 @@ function handleShortcutKeydown(e) {
   } else if (matchesShortcut(e, gridShortcuts.spotify)) {
     e.preventDefault();
     toggleSpotifyMode();
+  } else if (matchesShortcut(e, gridShortcuts.find)) {
+    e.preventDefault();
+    focusGridFilter();
   }
 }
 

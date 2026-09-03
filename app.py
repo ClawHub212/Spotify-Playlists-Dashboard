@@ -520,6 +520,14 @@ def index():
     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
     return response
 
+@app.route('/settings')
+def settings_page():
+    # Preferences (shortcuts, appearance, app mode) — hosted by the native
+    # Settings window and openable in a browser tab. Needs no Spotify auth.
+    response = send_from_directory('static', 'settings.html')
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    return response
+
 @app.route('/tracker')
 def tracker():
     return serve_page('tracker')
@@ -807,10 +815,43 @@ def toggle_repeat():
     try:
         sp.repeat(state)
         invalidate_current_track_cache()
+        # The repeat icon is also a Keyboard Maestro trigger: the "Repeat
+        # Toggle" macro mirrors the state into xbar / KM variables.
+        fire_repeat_macro("On" if state == "track" else "Off")
         return jsonify({"success": True})
     except Exception as e:
         print(f"Error toggling repeat: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+# Keyboard Maestro "Repeat Toggle" (group: Spotify Dashboard - External). It
+# branches on %TriggerValue% — "On" or "Off" — so it must be triggered WITH a
+# parameter, which is why this goes through the keyboardmaestro CLI (-p) and
+# not `open kmtrigger://`. The CLI also fails loudly (exit 8 + message) when
+# the macro is disabled or gone, where AppleScript's `do script` fails silently.
+REPEAT_MACRO_UUID = os.environ.get(
+    "SPOTIFY_DASHBOARD_REPEAT_MACRO", "91EEA4DF-857F-415B-93D8-4584BCD4E92B")
+KM_CLI = "/Applications/Keyboard Maestro.app/Contents/MacOS/keyboardmaestro"
+
+
+def fire_repeat_macro(value):
+    """Trigger the Repeat Toggle macro with "On"/"Off", off the request thread."""
+    if not os.path.exists(KM_CLI):
+        print(f"[repeat-macro] Keyboard Maestro CLI not found at {KM_CLI}; skipping")
+        return
+
+    def run():
+        try:
+            result = subprocess.run(
+                [KM_CLI, "-a", "-p", value, REPEAT_MACRO_UUID],
+                capture_output=True, text=True, timeout=10)
+            if result.returncode != 0:
+                print(f"[repeat-macro] exit {result.returncode}: "
+                      f"{(result.stderr or result.stdout).strip()}")
+        except Exception as e:
+            print(f"[repeat-macro] failed to trigger: {e}")
+
+    threading.Thread(target=run, daemon=True).start()
 
 @app.route('/api/playlist/toggle', methods=['POST'])
 def toggle_playlist():

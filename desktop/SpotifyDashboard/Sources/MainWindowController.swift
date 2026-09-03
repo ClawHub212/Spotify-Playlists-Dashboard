@@ -51,7 +51,7 @@ class MainWindowController: NSObject {
         config.preferences.setValue(true, forKey: "developerExtrasEnabled")
 
         // Let the page know it's inside the native wrapper (it hides its
-        // in-page shortcuts button — the entry point is Settings here).
+        // toolbar Settings button — the entry point is the Settings window).
         let nativeFlag = WKUserScript(
             source: "window.__nativeApp = true;",
             injectionTime: .atDocumentStart,
@@ -90,26 +90,6 @@ class MainWindowController: NSObject {
     /// Reload the current page
     func reload() {
         webView.reload()
-    }
-
-    // MARK: - Grid shortcuts panel (Settings → Grid Shortcuts → Customize…)
-
-    /// When set, the KEYBOARD SHORTCUTS modal opens as soon as the next page
-    /// finishes loading (used when we have to navigate to Playlists first).
-    private var openShortcutsAfterLoad = false
-
-    /// Open the in-page KEYBOARD SHORTCUTS customization modal, navigating to
-    /// the Playlists page first if another page is showing.
-    func openGridShortcutsPanel() {
-        if currentPage == .playlists {
-            webView.evaluateJavaScript(
-                "typeof openShortcutsModal === 'function' && openShortcutsModal();",
-                completionHandler: nil
-            )
-        } else {
-            openShortcutsAfterLoad = true
-            loadPage(.playlists)
-        }
     }
 
     // MARK: - Zoom
@@ -196,16 +176,6 @@ extension MainWindowController: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         // Restore saved zoom level after each page load
         restoreZoom()
-
-        // Deferred open of the shortcuts modal (Settings → Customize… while on
-        // another page navigates here first, then opens it).
-        if openShortcutsAfterLoad && currentPage == .playlists {
-            openShortcutsAfterLoad = false
-            webView.evaluateJavaScript(
-                "typeof openShortcutsModal === 'function' && openShortcutsModal();",
-                completionHandler: nil
-            )
-        }
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {

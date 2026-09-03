@@ -30,6 +30,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var terminationSignalSources: [DispatchSourceSignal] = []
 
     private var versionMenuController: VersionMenuController?
+    private var themesMenu: NSMenu?
+
+    /// "dark" (Phosphor) or "light" (Daybreak) — mirrored from the page's
+    /// localStorage through the `dashboard` script-message bridge.
+    private var currentTheme: String {
+        get { UserDefaults.standard.string(forKey: "dashTheme") ?? "dark" }
+        set { UserDefaults.standard.set(newValue, forKey: "dashTheme") }
+    }
 
     // Set by a launcher that must not steal focus (scripts/dashboard-open.sh
     // --background, tooling that relaunches the app while you work elsewhere).
@@ -118,8 +126,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         hotkeyManager.loadAndRegisterAll()
 
         // Set up settings window controller
-        settingsWindowController = SettingsWindowController(hotkeyManager: hotkeyManager, webView: webViewController.webView)
+        settingsWindowController = SettingsWindowController(hotkeyManager: hotkeyManager)
         settingsWindowController.delegate = self
+
+        // The dashboard page reports theme changes (its own toggle, ⇧⌘L) so
+        // the Themes menu check and the Settings window follow.
+        webViewController.webView.configuration.userContentController.add(self, name: "dashboard")
 
         // Apply Dock/Menu Bar mode
         applyAppMode()
@@ -145,12 +157,38 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         loadInternalSidebarShortcut()
 
-        // Intercept internal shortcuts cleanly
+        // App-level shortcuts. A local monitor rather than menu key
+        // equivalents alone: the web view is almost always first responder
+        // and eats key equivalents before the menu bar sees them.
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self = self else { return event }
-            let carbonMods = HotkeyManager.cocoaToCarbonModifiers(event.modifierFlags.intersection([.command, .option, .control, .shift]))
-            
-            if UInt32(event.keyCode) == self.internalSidebarKeyCode && carbonMods == self.internalSidebarModifiers {
+            let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
+            let carbonMods = HotkeyManager.cocoaToCarbonModifiers(flags)
+            let chars = event.charactersIgnoringModifiers ?? ""
+            let keyCode = UInt32(event.keyCode)
+
+            // A Settings recorder is capturing: every combo belongs to it.
+            if self.settingsWindowController.isRecording { return event }
+
+            // Settings — ⌘, opens, ⌘` toggles. Fixed; everything else is rebindable.
+            if flags == [.command] && chars == "," {
+                self.openSettings()
+                return nil
+            }
+            if flags == [.command] && chars == "`" {
+                self.settingsWindowController.toggle()
+                return nil
+            }
+            // ⌃G / ⌃A / ⌃S (rebindable) jump straight to a Settings section
+            if let section = self.settingsWindowController.matchSection(keyCode: keyCode, carbonModifiers: carbonMods) {
+                self.settingsWindowController.show(section: section)
+                return nil
+            }
+
+            // Sidebar toggle belongs to the dashboard window only — not to
+            // Settings or any other window that happens to be key.
+            if event.window == self.mainWindow
+                && keyCode == self.internalSidebarKeyCode && carbonMods == self.internalSidebarModifiers {
                 self.webViewController.webView.evaluateJavaScript("toggleSidebar()", completionHandler: nil)
                 return nil // Swallow event
             }
@@ -354,14 +392,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         mainWindow.orderOut(nil)
     }
 
-    /// Settings → Grid Shortcuts → Customize…: bring the dashboard forward and
-    /// open the in-page KEYBOARD SHORTCUTS modal (navigating to Playlists first
-    /// when another page is showing).
-    func openGridShortcutsPanel() {
-        showWindowOnCurrentScreen()
-        webViewController.openGridShortcutsPanel()
-    }
-
     func toggleWindow() {
         if mainWindow.isVisible {
             hideWindow()
@@ -516,6 +546,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         viewMenuItem.submenu = viewMenu
         mainMenu.addItem(viewMenuItem)
 
+        // Themes menu — flat, single-select, each row says whether it is a
+        // light or a dark theme; rebuilt on open so the ✓ is always current.
+        let themesMenuItem = NSMenuItem()
+        let themes = NSMenu(title: "Themes")
+        themes.delegate = self
+        themesMenuItem.submenu = themes
+        mainMenu.addItem(themesMenuItem)
+        themesMenu = themes
+        rebuildThemesMenu()
+
         // Window menu
         let windowMenuItem = NSMenuItem()
         let windowMenu = NSMenu(title: "Window")
@@ -533,7 +573,64 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func openSettings() {
-        settingsWindowController.showWindow()
+        settingsWindowController.show()
+    }
+
+    // MARK: - Themes
+
+    private static let themeRows: [(id: String, name: String, symbol: String)] = [
+        ("dark", "Phosphor", "moon.fill"),
+        ("light", "Daybreak", "sun.max.fill"),
+    ]
+
+    private func rebuildThemesMenu() {
+        guard let menu = themesMenu else { return }
+        menu.removeAllItems()
+        let theme = currentTheme
+        let toLight = theme == "dark"
+
+        let switchItem = NSMenuItem(
+            title: toLight ? "Switch to Light Appearance" : "Switch to Dark Appearance",
+            action: #selector(toggleThemeFromMenu),
+            keyEquivalent: "l"
+        )
+        switchItem.keyEquivalentModifierMask = [.command, .shift]
+        switchItem.target = self
+        switchItem.image = NSImage(systemSymbolName: toLight ? "sun.max.fill" : "moon.fill", accessibilityDescription: nil)
+        menu.addItem(switchItem)
+        menu.addItem(NSMenuItem.separator())
+
+        for row in Self.themeRows {
+            let item = NSMenuItem(title: row.name, action: #selector(selectTheme(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = row.id
+            item.image = NSImage(systemSymbolName: row.symbol, accessibilityDescription: row.id == "dark" ? "Dark theme" : "Light theme")
+            item.state = row.id == theme ? .on : .off
+            menu.addItem(item)
+        }
+    }
+
+    /// Apply a theme everywhere: the dashboard page (which persists it in
+    /// localStorage and reports back), the Settings window, and our mirror.
+    func setTheme(_ theme: String, fromDashboard: Bool = false) {
+        let normalized = theme == "light" ? "light" : "dark"
+        currentTheme = normalized
+        if !fromDashboard {
+            webViewController.webView.evaluateJavaScript(
+                "typeof applyTheme === 'function' && applyTheme('\(normalized)')",
+                completionHandler: nil
+            )
+        }
+        settingsWindowController.noteTheme(normalized)
+    }
+
+    @objc private func toggleThemeFromMenu() {
+        setTheme(currentTheme == "dark" ? "light" : "dark")
+    }
+
+    @objc private func selectTheme(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String else { return }
+        setTheme(id)
     }
 
     @objc func showAboutPanel() {
@@ -658,7 +755,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let newState = !isFloatOnTop
         setFloatOnTop(newState)
         sender.state = newState ? .on : .off
-        settingsWindowController.updateFloatOnTopState(newState)
+        settingsWindowController.noteFloatOnTop(newState)
+    }
+}
+
+// MARK: - NSMenuDelegate (Themes)
+
+extension AppDelegate: NSMenuDelegate {
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        if menu === themesMenu { rebuildThemesMenu() }
+    }
+}
+
+// MARK: - WKScriptMessageHandler (dashboard page → app)
+
+extension AppDelegate: WKScriptMessageHandler {
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.name == "dashboard",
+              let body = message.body as? [String: Any],
+              let type = body["type"] as? String else { return }
+        if type == "theme", let theme = body["theme"] as? String {
+            setTheme(theme, fromDashboard: true)
+        }
     }
 }
 
@@ -694,6 +812,21 @@ extension AppDelegate: SettingsDelegate {
            let floatItem = viewMenu.item(withTitle: "Float on Top") {
             floatItem.state = enabled ? .on : .off
         }
+    }
+
+    func settingsDidChangeTheme(_ theme: String) {
+        setTheme(theme)
+    }
+
+    func settingsDidChangeGridShortcuts() {
+        webViewController.webView.evaluateJavaScript(
+            "typeof reloadGridShortcuts === 'function' && reloadGridShortcuts()",
+            completionHandler: nil
+        )
+    }
+
+    func settingsDidChangeSidebarShortcut() {
+        loadInternalSidebarShortcut()
     }
 }
 

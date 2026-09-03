@@ -52,6 +52,24 @@
       <!-- Playlist Grid -->
       <main class="playlist-section">
         <div class="grid-header">
+          <!-- Live name filter: narrows the grid as you type (F / ⌘F focuses it) -->
+          <div class="grid-filter" id="grid-filter">
+            <svg class="grid-filter-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <input
+              id="grid-filter-input"
+              class="grid-filter-input"
+              type="text"
+              placeholder="FILTER PLAYLISTS"
+              autocomplete="off"
+              autocorrect="off"
+              autocapitalize="off"
+              spellcheck="false"
+              aria-label="Filter playlists by name"
+            />
+            <span id="grid-filter-count" class="grid-filter-count" hidden></span>
+            <button id="grid-filter-clear" class="grid-filter-clear" type="button" aria-label="Clear filter" hidden>✕</button>
+            <kbd class="btn-key" id="key-hint-find">F</kbd>
+          </div>
           <button id="add-playlist-btn" class="grid-header-btn" type="button">
             <span class="btn-label">＋ NEW</span><kbd class="btn-key" id="key-hint-new">N</kbd>
           </button>
@@ -65,7 +83,7 @@
           <button id="spotify-mode-btn" class="grid-header-btn" type="button">
             <span class="btn-label"><svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.586 14.424a.622.622 0 0 1-.857.207c-2.348-1.435-5.304-1.76-8.785-.964a.622.622 0 1 1-.277-1.215c3.809-.87 7.077-.496 9.712 1.115.293.18.386.563.207.857zm1.223-2.723a.78.78 0 0 1-1.072.257c-2.687-1.652-6.785-2.131-9.965-1.166A.779.779 0 1 1 6.32 11.3c3.632-1.102 8.147-.568 11.234 1.328a.78.78 0 0 1 .255 1.073zm.105-2.835C14.692 8.95 9.375 8.775 6.297 9.71a.935.935 0 1 1-.543-1.79c3.532-1.072 9.404-.865 13.115 1.338a.936.936 0 0 1-.955 1.608z"/></svg> SPOTIFY</span><kbd class="btn-key" id="key-hint-spotify">S</kbd>
           </button>
-          <button id="shortcuts-btn" class="grid-header-btn icon-only" type="button" aria-label="Customize keyboard shortcuts" title="Customize keyboard shortcuts">
+          <button id="shortcuts-btn" class="grid-header-btn icon-only" type="button" aria-label="Open Settings" title="Settings — shortcuts, appearance">
             <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"></rect><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M18 14h.01M9 14h6"></path></svg>
           </button>
         </div>
@@ -155,60 +173,7 @@
       </div>
     </div>
 
-    <!-- Keyboard Shortcuts Modal -->
-    <div id="shortcuts-overlay" class="editor-overlay" hidden>
-      <div class="editor-modal shortcuts-modal" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title">
-        <h3 class="editor-title" id="shortcuts-title">KEYBOARD SHORTCUTS</h3>
-
-        <div class="shortcut-row">
-          <div class="shortcut-info">
-            <span class="shortcut-name">NEW</span>
-            <span class="shortcut-desc">Open the new-playlist editor</span>
-          </div>
-          <button class="shortcut-recorder" id="recorder-new" type="button" title="Click, then press the new shortcut. Esc cancels.">N</button>
-        </div>
-
-        <div class="shortcut-row">
-          <div class="shortcut-info">
-            <span class="shortcut-name">EDIT</span>
-            <span class="shortcut-desc">Toggle edit mode on the grid</span>
-          </div>
-          <button class="shortcut-recorder" id="recorder-edit" type="button" title="Click, then press the new shortcut. Esc cancels.">E</button>
-        </div>
-
-        <div class="shortcut-row">
-          <div class="shortcut-info">
-            <span class="shortcut-name">CANCEL</span>
-            <span class="shortcut-desc">Leave the armed mode (Esc always works too)</span>
-          </div>
-          <button class="shortcut-recorder" id="recorder-cancel" type="button" title="Click, then press the new shortcut. Esc cancels.">C</button>
-        </div>
-
-        <div class="shortcut-row">
-          <div class="shortcut-info">
-            <span class="shortcut-name">SPOTIFY</span>
-            <span class="shortcut-desc">Toggle open-in-Spotify mode</span>
-          </div>
-          <button class="shortcut-recorder" id="recorder-spotify" type="button" title="Click, then press the new shortcut. Esc cancels.">S</button>
-        </div>
-
-        <div class="shortcut-row">
-          <div class="shortcut-info">
-            <span class="shortcut-name">THEME</span>
-            <span class="shortcut-desc">Switch between dark and Daybreak (all pages)</span>
-          </div>
-          <button class="shortcut-recorder" id="recorder-theme" type="button" title="Click, then press the new shortcut. Esc cancels.">⇧⌘L</button>
-        </div>
-
-        <p class="shortcuts-note">Click a key, then press the new shortcut. Esc cancels. ⌘-click any playlist to open it in Spotify.</p>
-
-        <div class="editor-actions">
-          <button id="shortcuts-reset" class="editor-btn ghost" type="button">RESET DEFAULTS</button>
-          <button id="shortcuts-close" class="editor-btn primary" type="button">DONE</button>
-        </div>
-      </div>
-    </div>
-
+    <script src="grid-shortcuts.js"></script>
     <script src="script.js"></script>
   </body>
 </html>

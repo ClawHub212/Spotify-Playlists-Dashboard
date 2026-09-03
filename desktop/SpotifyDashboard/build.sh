@@ -145,7 +145,6 @@ SWIFT_FILES=(
     "$SOURCES_DIR/AuthRequiredViewController.swift"
     "$SOURCES_DIR/StatusBarController.swift"
     "$SOURCES_DIR/HotkeyManager.swift"
-    "$SOURCES_DIR/ShortcutRecorderView.swift"
     "$SOURCES_DIR/SettingsWindowController.swift"
     "$SOURCES_DIR/VersionMenuController.swift"
     "$SOURCES_DIR/AppleScriptCommands.swift"

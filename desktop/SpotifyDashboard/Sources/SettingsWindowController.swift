@@ -1,328 +1,361 @@
 import Cocoa
 import WebKit
+import Carbon
+
+/// Sections of the Settings page and their ⌃-letter jump keys (rebindable
+/// from the page's SETTINGS card; ⌘, and ⌘` stay fixed).
+enum SettingsSection: String, CaseIterable {
+    case general, appearance, shortcuts
+
+    var defaultCombo: KeyCombo {
+        switch self {
+        case .general:    return KeyCombo(keyCode: 5, modifiers: UInt32(controlKey)) // ⌃G
+        case .appearance: return KeyCombo(keyCode: 0, modifiers: UInt32(controlKey)) // ⌃A
+        case .shortcuts:  return KeyCombo(keyCode: 1, modifiers: UInt32(controlKey)) // ⌃S
+        }
+    }
+}
+
+/// A key combination in the native hotkey layer's vocabulary: Carbon virtual
+/// keycode + Carbon modifier mask (the same shape HotkeyManager registers).
+struct KeyCombo: Codable, Equatable {
+    let keyCode: UInt32
+    let modifiers: UInt32
+}
 
 protocol SettingsDelegate: AnyObject {
     func settingsDidChangeAppMode(menuBarMode: Bool)
     func settingsDidChangeFloatOnTop(enabled: Bool)
+    func settingsDidChangeTheme(_ theme: String)
+    func settingsDidChangeGridShortcuts()
+    func settingsDidChangeSidebarShortcut()
 }
 
-class SettingsWindowController {
+/// The ONE settings surface. A resizable, frame-persisting window hosting
+/// the dashboard's own /settings page (served by the Flask backend, styled
+/// like the rest of the app). Preferences that live natively — global
+/// hotkeys, app mode, float-on-top, the sidebar and section shortcuts —
+/// round-trip through the `settings` script-message bridge; the grid
+/// shortcuts and theme are shared with the dashboard through localStorage
+/// (same origin, same website data store).
+final class SettingsWindowController: NSObject {
 
-    private var window: NSWindow?
     private let hotkeyManager: HotkeyManager
-    private weak var webView: WKWebView?
     weak var delegate: SettingsDelegate?
 
-    private var recorderViews: [DashboardPage: ShortcutRecorderView] = [:]
-    private var sidebarRecorderView: ShortcutRecorderView?
-    private var floatOnTopToggle: NSSwitch?
+    private var window: NSWindow?
+    private var webView: WKWebView?
+    private var pageReady = false
+    private var pendingSection: SettingsSection?
 
-    init(hotkeyManager: HotkeyManager, webView: WKWebView?) {
+    /// True while a recorder on the page is capturing — the app-level key
+    /// monitor lets every combo through to the page in that state.
+    private(set) var isRecording = false
+
+    private(set) var sectionShortcuts: [SettingsSection: KeyCombo] = [:]
+    private static let sectionDefaultsKey = "settingsSectionShortcuts"
+    private static let frameAutosaveName = "SettingsWindow"
+    private let pageURL = URL(string: "http://127.0.0.1:8888/settings")!
+
+    init(hotkeyManager: HotkeyManager) {
         self.hotkeyManager = hotkeyManager
-        self.webView = webView
+        super.init()
+        loadSectionShortcuts()
     }
 
-    func showWindow() {
-        if let existing = window, existing.isVisible {
-            existing.makeKeyAndOrderFront(nil)
-            return
+    var isVisible: Bool { window?.isVisible ?? false }
+
+    // MARK: - Show / hide
+
+    func show(section: SettingsSection? = nil) {
+        let win = window ?? makeWindow()
+        applyChrome()
+        if let section = section {
+            if pageReady {
+                evaluate("SettingsPage.showSection('\(section.rawValue)')")
+            } else {
+                pendingSection = section
+            }
         }
+        win.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func toggle() {
+        if isVisible { close() } else { show() }
+    }
+
+    /// Hides rather than destroys, so ⌘` brings it straight back.
+    func close() {
+        window?.orderOut(nil)
+    }
+
+    // MARK: - Section shortcuts (⌃G / ⌃A / ⌃S by default)
+
+    func matchSection(keyCode: UInt32, carbonModifiers: UInt32) -> SettingsSection? {
+        for (section, combo) in sectionShortcuts
+        where combo.keyCode == keyCode && combo.modifiers == carbonModifiers {
+            return section
+        }
+        return nil
+    }
+
+    private func loadSectionShortcuts() {
+        var loaded: [SettingsSection: KeyCombo] = [:]
+        if let data = UserDefaults.standard.data(forKey: Self.sectionDefaultsKey),
+           let stored = try? JSONDecoder().decode([String: KeyCombo].self, from: data) {
+            for (key, combo) in stored {
+                if let section = SettingsSection(rawValue: key) { loaded[section] = combo }
+            }
+        }
+        for section in SettingsSection.allCases where loaded[section] == nil {
+            loaded[section] = section.defaultCombo
+        }
+        sectionShortcuts = loaded
+    }
+
+    private func saveSectionShortcuts() {
+        var out: [String: KeyCombo] = [:]
+        for (section, combo) in sectionShortcuts { out[section.rawValue] = combo }
+        if let data = try? JSONEncoder().encode(out) {
+            UserDefaults.standard.set(data, forKey: Self.sectionDefaultsKey)
+        }
+    }
+
+    // MARK: - Keeping the page in sync with changes made elsewhere
+
+    func noteFloatOnTop(_ enabled: Bool) { push(["floatOnTop": enabled]) }
+    func noteMenuBarMode(_ enabled: Bool) { push(["menuBarMode": enabled]) }
+    func noteTheme(_ theme: String) {
+        applyChrome()
+        push(["theme": theme])
+    }
+
+    // MARK: - Window
+
+    private func makeWindow() -> NSWindow {
+        // Default: most of the screen, so sections need little or no scrolling.
+        // A saved frame (setFrameAutosaveName) overrides this on later runs.
+        let screen = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame
+            ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let w = floor(screen.width * 0.78)
+        let h = floor(screen.height * 0.84)
+        let rect = NSRect(x: screen.midX - w / 2, y: screen.midY - h / 2, width: w, height: h)
 
         let win = NSWindow(
-            // Height must cover the full buildSettingsUI stack (598pt of rows
-            // and gaps) plus 24pt padding top and bottom, or the last section
-            // clips below the window edge.
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 650),
-            styleMask: [.titled, .closable],
+            contentRect: rect,
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
         win.title = "Settings"
-        win.level = .floating
+        win.minSize = NSSize(width: 840, height: 560)
         win.isReleasedWhenClosed = false
-        win.center()
+        win.level = .floating // the dashboard itself may float; Settings sits above it
+        win.titlebarAppearsTransparent = true
+        win.delegate = self
+        win.setFrameAutosaveName(Self.frameAutosaveName)
 
-        let contentView = NSView(frame: win.contentView!.bounds)
-        contentView.autoresizingMask = [.width, .height]
+        let config = WKWebViewConfiguration()
+        config.preferences.setValue(true, forKey: "developerExtrasEnabled")
+        config.userContentController.add(self, name: "settings")
+        config.userContentController.addUserScript(WKUserScript(
+            source: "window.__nativeApp = true;",
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        ))
 
-        // Dark background to match app aesthetic
-        contentView.wantsLayer = true
-        contentView.layer?.backgroundColor = NSColor(white: 0.1, alpha: 1.0).cgColor
+        let wv = WKWebView(frame: win.contentView!.bounds, configuration: config)
+        wv.autoresizingMask = [.width, .height]
+        wv.setValue(false, forKey: "drawsBackground")
+        wv.navigationDelegate = self
+        win.contentView?.addSubview(wv)
+        wv.load(URLRequest(url: pageURL))
 
-        buildSettingsUI(in: contentView)
-
-        win.contentView = contentView
-        win.makeKeyAndOrderFront(nil)
-        self.window = win
+        webView = wv
+        window = win
+        return win
     }
 
-    // MARK: - UI Construction
+    private var currentTheme: String {
+        UserDefaults.standard.string(forKey: "dashTheme") ?? "dark"
+    }
 
-    private func buildSettingsUI(in container: NSView) {
-        let padding: CGFloat = 24
-        let rowHeight: CGFloat = 36
-        var yOffset: CGFloat = container.bounds.height - padding
+    /// Window background + appearance follow the dashboard theme so the
+    /// title bar and any pre-paint frame match the page instead of flashing.
+    private func applyChrome() {
+        guard let win = window else { return }
+        let light = currentTheme == "light"
+        win.backgroundColor = light
+            ? NSColor(red: 0.933, green: 0.941, blue: 0.910, alpha: 1) // #eef0e8
+            : NSColor(red: 0.039, green: 0.039, blue: 0.039, alpha: 1) // #0a0a0a
+        win.appearance = NSAppearance(named: light ? .aqua : .darkAqua)
+    }
 
-        // Title
-        yOffset -= 28
-        let titleLabel = makeLabel("Global Keyboard Shortcuts", size: 16, bold: true)
-        titleLabel.frame = NSRect(x: padding, y: yOffset, width: 300, height: 24)
-        container.addSubview(titleLabel)
+    // MARK: - Bridge → page
 
-        yOffset -= 8
+    private func evaluate(_ js: String) {
+        webView?.evaluateJavaScript(js, completionHandler: nil)
+    }
 
-        // Subtitle
-        yOffset -= 18
-        let subtitleLabel = makeLabel("Record a shortcut to toggle each page", size: 12, bold: false)
-        subtitleLabel.textColor = NSColor.secondaryLabelColor
-        subtitleLabel.frame = NSRect(x: padding, y: yOffset, width: 400, height: 16)
-        container.addSubview(subtitleLabel)
+    private func push(_ partial: [String: Any]) {
+        guard pageReady, let json = jsonString(partial) else { return }
+        evaluate("window.SettingsPage && SettingsPage.update(\(json))")
+    }
 
-        yOffset -= 12
-
-        // Shortcut rows for each page
+    private func pushFullState() {
+        var hotkeys: [String: Any] = [:]
         for page in DashboardPage.allCases {
-            yOffset -= rowHeight
-
-            // Label
-            let label = makeLabel(page.displayName, size: 14, bold: false)
-            label.frame = NSRect(x: padding, y: yOffset + 4, width: 100, height: 22)
-            container.addSubview(label)
-
-            // Recorder
-            let recorder = ShortcutRecorderView(frame: NSRect(x: 130, y: yOffset + 2, width: 200, height: 28))
-            recorder.autoresizingMask = []
-
-            // Load existing binding
-            if let binding = hotkeyManager.binding(for: page) {
-                recorder.setDisplayString(binding.displayString)
+            if let b = hotkeyManager.binding(for: page) {
+                hotkeys[page.rawValue] = ["keyCode": b.keyCode, "modifiers": b.modifiers]
+            } else {
+                hotkeys[page.rawValue] = NSNull()
             }
-
-            // Capture page in closure
-            let capturedPage = page
-            recorder.onShortcutRecorded = { [weak self] keyCode, modifiers, _ in
-                self?.hotkeyManager.register(page: capturedPage, keyCode: keyCode, modifiers: modifiers)
-            }
-
-            container.addSubview(recorder)
-            recorderViews[page] = recorder
-
-            // Clear button
-            let clearButton = NSButton(frame: NSRect(x: 345, y: yOffset + 2, width: 60, height: 28))
-            clearButton.title = "Clear"
-            clearButton.bezelStyle = .rounded
-            clearButton.tag = page.hashValue
-            clearButton.target = self
-            clearButton.action = #selector(clearShortcut(_:))
-
-            // Store page reference via associated object
-            objc_setAssociatedObject(clearButton, "page", page.rawValue, .OBJC_ASSOCIATION_RETAIN)
-
-            container.addSubview(clearButton)
-
-            yOffset -= 4
         }
 
-        // Divider line
-        yOffset -= 20
-        let divider = NSBox(frame: NSRect(x: padding, y: yOffset, width: container.bounds.width - padding * 2, height: 1))
-        divider.boxType = .separator
-        container.addSubview(divider)
-
-        yOffset -= 16
-
-        // App Mode section
-        yOffset -= 24
-        let modeTitle = makeLabel("App Mode", size: 16, bold: true)
-        modeTitle.frame = NSRect(x: padding, y: yOffset, width: 200, height: 24)
-        container.addSubview(modeTitle)
-
-        yOffset -= rowHeight
-
-        // Dock/Menu Bar toggle
-        let modeLabel = makeLabel("Run as Menu Bar Utility", size: 14, bold: false)
-        modeLabel.frame = NSRect(x: padding, y: yOffset + 4, width: 200, height: 22)
-        container.addSubview(modeLabel)
-
-        let toggle = NSSwitch(frame: NSRect(x: 250, y: yOffset + 2, width: 50, height: 28))
-        toggle.state = UserDefaults.standard.bool(forKey: "menuBarMode") ? .on : .off
-        toggle.target = self
-        toggle.action = #selector(toggleAppMode(_:))
-        container.addSubview(toggle)
-
-        yOffset -= rowHeight
-
-        // Float on Top toggle
-        let floatLabel = makeLabel("Float on Top", size: 14, bold: false)
-        floatLabel.frame = NSRect(x: padding, y: yOffset + 4, width: 200, height: 22)
-        container.addSubview(floatLabel)
-
-        let floatToggle = NSSwitch(frame: NSRect(x: 250, y: yOffset + 2, width: 50, height: 28))
-        let floatDefault = UserDefaults.standard.object(forKey: "floatOnTop") == nil ? true : UserDefaults.standard.bool(forKey: "floatOnTop")
-        floatToggle.state = floatDefault ? .on : .off
-        floatToggle.target = self
-        floatToggle.action = #selector(toggleFloatOnTop(_:))
-        container.addSubview(floatToggle)
-        self.floatOnTopToggle = floatToggle
-
-        yOffset -= 8
-
-        // Explanation text
-        yOffset -= 32
-        let explainLabel = makeLabel(
-            "Menu Bar mode hides the app from the Dock.\nFloat on Top keeps the window above all others.",
-            size: 11,
-            bold: false
-        )
-        explainLabel.textColor = NSColor.tertiaryLabelColor
-        explainLabel.maximumNumberOfLines = 2
-        explainLabel.frame = NSRect(x: padding, y: yOffset, width: 420, height: 32)
-        container.addSubview(explainLabel)
-
-        // ─────────────────────────────────────────
-        // Internal Shortcuts section
-        // ─────────────────────────────────────────
-        yOffset -= 24
-        let divider2 = NSBox(frame: NSRect(x: padding, y: yOffset, width: container.bounds.width - padding * 2, height: 1))
-        divider2.boxType = .separator
-        container.addSubview(divider2)
-
-        yOffset -= 16
-        yOffset -= 24
-        let internalTitle = makeLabel("Internal Shortcuts", size: 16, bold: true)
-        internalTitle.frame = NSRect(x: padding, y: yOffset, width: 300, height: 24)
-        container.addSubview(internalTitle)
-
-        yOffset -= 10
-        let internalSubtitle = makeLabel("Active only when this window has focus", size: 12, bold: false)
-        internalSubtitle.textColor = NSColor.secondaryLabelColor
-        internalSubtitle.frame = NSRect(x: padding, y: yOffset, width: 400, height: 16)
-        container.addSubview(internalSubtitle)
-
-        yOffset -= 12
-        yOffset -= rowHeight
-
-        // Sidebar toggle row
-        let sidebarLabel = makeLabel("Toggle Sidebar", size: 14, bold: false)
-        sidebarLabel.frame = NSRect(x: padding, y: yOffset + 4, width: 120, height: 22)
-        container.addSubview(sidebarLabel)
-
-        let sidebarRecorder = ShortcutRecorderView(frame: NSRect(x: 150, y: yOffset + 2, width: 180, height: 28))
-        sidebarRecorder.autoresizingMask = []
-
-        // Load current binding label from localStorage
-        updateSidebarRecorderDisplay(sidebarRecorder)
-
-        sidebarRecorder.onShortcutRecorded = { [weak self] keyCode, modifiers, displayString in
-            let shortcutData: [String: Any] = [
-                "keyCode": Int(keyCode),
-                "modifiers": Int(modifiers),
-                "displayString": displayString
-            ]
-            UserDefaults.standard.set(shortcutData, forKey: "internalSidebarShortcut")
-            (NSApp.delegate as? AppDelegate)?.loadInternalSidebarShortcut()
-        }
-
-        container.addSubview(sidebarRecorder)
-        self.sidebarRecorderView = sidebarRecorder
-
-        // Clear button
-        let sidebarClearBtn = NSButton(frame: NSRect(x: 345, y: yOffset + 2, width: 60, height: 28))
-        sidebarClearBtn.title = "Clear"
-        sidebarClearBtn.bezelStyle = .rounded
-        sidebarClearBtn.target = self
-        sidebarClearBtn.action = #selector(clearSidebarShortcut)
-        container.addSubview(sidebarClearBtn)
-
-        // ─────────────────────────────────────────
-        // Grid Shortcuts section (Playlists page NEW / EDIT / SPOTIFY)
-        // ─────────────────────────────────────────
-        yOffset -= 20
-        let divider3 = NSBox(frame: NSRect(x: padding, y: yOffset, width: container.bounds.width - padding * 2, height: 1))
-        divider3.boxType = .separator
-        container.addSubview(divider3)
-
-        yOffset -= 16
-        yOffset -= 24
-        let gridTitle = makeLabel("Grid Shortcuts", size: 16, bold: true)
-        gridTitle.frame = NSRect(x: padding, y: yOffset, width: 300, height: 24)
-        container.addSubview(gridTitle)
-
-        yOffset -= 10
-        let gridSubtitle = makeLabel("NEW / EDIT / SPOTIFY keys on the Playlists page (defaults N · E · S)", size: 12, bold: false)
-        gridSubtitle.textColor = NSColor.secondaryLabelColor
-        gridSubtitle.frame = NSRect(x: padding, y: yOffset, width: 420, height: 16)
-        container.addSubview(gridSubtitle)
-
-        yOffset -= 12
-        yOffset -= rowHeight
-
-        let gridButton = NSButton(frame: NSRect(x: padding, y: yOffset, width: 190, height: 30))
-        gridButton.title = "Customize Shortcuts…"
-        gridButton.bezelStyle = .rounded
-        gridButton.target = self
-        gridButton.action = #selector(openGridShortcuts)
-        container.addSubview(gridButton)
-    }
-
-    /// Refresh the sidebar recorder's display from localStorage
-    private func updateSidebarRecorderDisplay(_ recorder: ShortcutRecorderView) {
+        var sidebar: [String: Any] = ["keyCode": 1, "modifiers": Int(cmdKey)]
         if let dict = UserDefaults.standard.dictionary(forKey: "internalSidebarShortcut"),
-           let display = dict["displayString"] as? String {
-            recorder.setDisplayString(display)
-        } else {
-            recorder.setDisplayString("\u{2318}S")
+           let kc = dict["keyCode"] as? NSNumber, let mods = dict["modifiers"] as? NSNumber {
+            sidebar = ["keyCode": kc.intValue, "modifiers": mods.intValue]
+        }
+
+        var sections: [String: Any] = [:]
+        for (section, combo) in sectionShortcuts {
+            sections[section.rawValue] = ["keyCode": combo.keyCode, "modifiers": combo.modifiers]
+        }
+
+        let defaults = UserDefaults.standard
+        let state: [String: Any] = [
+            "menuBarMode": defaults.bool(forKey: "menuBarMode"),
+            "floatOnTop": defaults.object(forKey: "floatOnTop") == nil ? true : defaults.bool(forKey: "floatOnTop"),
+            "hotkeys": hotkeys,
+            "sidebar": sidebar,
+            "sections": sections,
+            "theme": currentTheme,
+        ]
+        if let json = jsonString(state) {
+            evaluate("window.SettingsPage && SettingsPage.setState(\(json))")
         }
     }
 
-    // MARK: - Actions
-
-    @objc private func clearShortcut(_ sender: NSButton) {
-        guard let pageStr = objc_getAssociatedObject(sender, "page") as? String,
-              let page = DashboardPage(rawValue: pageStr) else { return }
-
-        hotkeyManager.unregister(page: page)
-        recorderViews[page]?.clearShortcut()
+    private func jsonString(_ object: [String: Any]) -> String? {
+        guard let data = try? JSONSerialization.data(withJSONObject: object) else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 
-    @objc private func openGridShortcuts() {
-        (NSApp.delegate as? AppDelegate)?.openGridShortcutsPanel()
+    private func uint32(_ value: Any?) -> UInt32? {
+        (value as? NSNumber)?.uint32Value
+    }
+}
+
+// MARK: - Bridge ← page
+
+extension SettingsWindowController: WKScriptMessageHandler {
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard let body = message.body as? [String: Any],
+              let type = body["type"] as? String else { return }
+        let clear = (body["clear"] as? Bool) == true
+
+        switch type {
+        case "ready":
+            pageReady = true
+            pushFullState()
+            if let section = pendingSection {
+                pendingSection = nil
+                evaluate("SettingsPage.showSection('\(section.rawValue)')")
+            }
+
+        case "set":
+            guard let key = body["key"] as? String, let value = body["value"] as? Bool else { return }
+            switch key {
+            case "menuBarMode":
+                UserDefaults.standard.set(value, forKey: "menuBarMode")
+                delegate?.settingsDidChangeAppMode(menuBarMode: value)
+            case "floatOnTop":
+                UserDefaults.standard.set(value, forKey: "floatOnTop")
+                delegate?.settingsDidChangeFloatOnTop(enabled: value)
+            default:
+                break
+            }
+
+        case "hotkey":
+            guard let pageStr = body["page"] as? String,
+                  let page = DashboardPage(rawValue: pageStr) else { return }
+            if clear {
+                hotkeyManager.unregister(page: page)
+            } else if let kc = uint32(body["keyCode"]), let mods = uint32(body["modifiers"]) {
+                hotkeyManager.register(page: page, keyCode: kc, modifiers: mods)
+            }
+
+        case "sidebarShortcut":
+            if clear {
+                UserDefaults.standard.removeObject(forKey: "internalSidebarShortcut")
+            } else if let kc = uint32(body["keyCode"]), let mods = uint32(body["modifiers"]) {
+                UserDefaults.standard.set([
+                    "keyCode": Int(kc),
+                    "modifiers": Int(mods),
+                    "displayString": (body["display"] as? String) ?? "",
+                ], forKey: "internalSidebarShortcut")
+            }
+            delegate?.settingsDidChangeSidebarShortcut()
+
+        case "sectionShortcut":
+            guard let sectionStr = body["section"] as? String,
+                  let section = SettingsSection(rawValue: sectionStr) else { return }
+            if clear {
+                sectionShortcuts[section] = section.defaultCombo
+            } else if let kc = uint32(body["keyCode"]), let mods = uint32(body["modifiers"]) {
+                sectionShortcuts[section] = KeyCombo(keyCode: kc, modifiers: mods)
+            }
+            saveSectionShortcuts()
+
+        case "gridShortcutsChanged":
+            delegate?.settingsDidChangeGridShortcuts()
+
+        case "theme":
+            if let theme = body["theme"] as? String {
+                UserDefaults.standard.set(theme, forKey: "dashTheme")
+                applyChrome()
+                delegate?.settingsDidChangeTheme(theme)
+            }
+
+        case "recording":
+            isRecording = (body["active"] as? Bool) ?? false
+
+        case "close":
+            close()
+
+        default:
+            break
+        }
+    }
+}
+
+// MARK: - NSWindowDelegate
+
+extension SettingsWindowController: NSWindowDelegate {
+    /// The red button hides the window (the page stays loaded, so the next
+    /// ⌘, / ⌘` is instant). The app never quits from here.
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        close()
+        return false
+    }
+}
+
+// MARK: - WKNavigationDelegate
+
+extension SettingsWindowController: WKNavigationDelegate {
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        let nsError = error as NSError
+        if nsError.code == NSURLErrorCancelled { return }
+        // Backend still warming up — try again shortly.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            guard let self = self else { return }
+            self.webView?.load(URLRequest(url: self.pageURL))
+        }
     }
 
-    @objc private func clearSidebarShortcut() {
-        // Reset to default ⌘S
-        UserDefaults.standard.removeObject(forKey: "internalSidebarShortcut")
-        (NSApp.delegate as? AppDelegate)?.loadInternalSidebarShortcut()
-        sidebarRecorderView?.setDisplayString("\u{2318}S")
-    }
-
-    @objc private func toggleAppMode(_ sender: NSSwitch) {
-        let menuBarMode = sender.state == .on
-        UserDefaults.standard.set(menuBarMode, forKey: "menuBarMode")
-        delegate?.settingsDidChangeAppMode(menuBarMode: menuBarMode)
-    }
-
-    @objc private func toggleFloatOnTop(_ sender: NSSwitch) {
-        let enabled = sender.state == .on
-        UserDefaults.standard.set(enabled, forKey: "floatOnTop")
-        delegate?.settingsDidChangeFloatOnTop(enabled: enabled)
-    }
-
-    /// Called externally when the View menu toggle changes, to keep the Settings switch in sync
-    func updateFloatOnTopState(_ enabled: Bool) {
-        floatOnTopToggle?.state = enabled ? .on : .off
-    }
-
-    // MARK: - Helpers
-
-    private func makeLabel(_ text: String, size: CGFloat, bold: Bool) -> NSTextField {
-        let label = NSTextField(labelWithString: text)
-        label.font = bold ? NSFont.boldSystemFont(ofSize: size) : NSFont.systemFont(ofSize: size)
-        label.textColor = NSColor.white
-        label.isEditable = false
-        label.isSelectable = false
-        label.isBordered = false
-        label.backgroundColor = .clear
-        return label
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        pageReady = false
     }
 }

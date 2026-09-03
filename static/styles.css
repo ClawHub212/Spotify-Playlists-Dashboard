@@ -1622,6 +1622,131 @@ body.theme-light .grid-header-btn.cancel:hover {
   background: rgba(0, 0, 0, 0.25);
 }
 
+/* ── Grid filter: live name search in the toolbar (playlists page) ──
+   Same chrome as the buttons beside it; sits at the left edge of the row
+   (margin-right: auto) while the actions keep their right alignment. */
+.grid-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 1 clamp(220px, 24vw, 360px);
+  min-width: 0;
+  margin-right: auto;
+  padding: 4px 8px 4px 10px;
+  color: rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.grid-filter:hover {
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+/* Focused or holding a query: page-accent ring, like the editor inputs */
+.grid-filter:focus-within,
+.grid-filter.active {
+  color: var(--neon-green);
+  border-color: rgba(132, 255, 0, 0.6);
+  background: rgba(132, 255, 0, 0.06);
+}
+.grid-filter:focus-within {
+  box-shadow: 0 0 10px rgba(132, 255, 0, 0.25);
+}
+
+.grid-filter-icon {
+  width: clamp(13px, 1vw, 16px);
+  height: clamp(13px, 1vw, 16px);
+  flex-shrink: 0;
+}
+
+.grid-filter-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-heading);
+  font-size: clamp(0.72rem, 0.8vw, 0.9rem);
+  font-weight: 500;
+  letter-spacing: 2px;
+  color: var(--text-primary);
+  background: transparent;
+  border: 0;
+  outline: none;
+  padding: 0;
+  text-transform: uppercase;
+}
+
+.grid-filter-input::placeholder {
+  color: rgba(255, 255, 255, 0.35);
+  letter-spacing: 2px;
+}
+.grid-filter:focus-within .grid-filter-input::placeholder {
+  color: rgba(255, 255, 255, 0.2);
+}
+
+/* "12 / 63" — how many tiles survived the filter */
+.grid-filter-count {
+  font-family: var(--font-mono);
+  font-size: clamp(0.68rem, 0.72vw, 0.8rem);
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.grid-filter-clear {
+  font-family: var(--font-mono);
+  font-size: clamp(0.72rem, 0.8vw, 0.9rem);
+  line-height: 1;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  padding: 2px 5px;
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0.7;
+  transition: all 0.15s ease;
+}
+.grid-filter-clear:hover {
+  opacity: 1;
+  color: var(--status-error);
+  background: rgba(255, 77, 109, 0.12);
+}
+
+.grid-filter .btn-key {
+  flex-shrink: 0;
+}
+.grid-filter:focus-within .btn-key,
+.grid-filter.active .btn-key {
+  color: inherit;
+  border-color: currentColor;
+}
+
+/* Tiles that fail the filter vanish in place — the grid's row/column math
+   is untouched, so the survivors keep their exact size and pack top-left. */
+.playlist-item.filtered-out,
+.active-group.filter-empty,
+.inactive-group.filter-empty,
+.playlist-divider.filter-empty {
+  display: none !important;
+}
+
+/* The typed run inside each surviving name */
+.playlist-name mark.filter-hit {
+  color: inherit;
+  background: rgba(132, 255, 0, 0.28);
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px rgba(132, 255, 0, 0.35);
+  padding: 0 1px;
+}
+.playlist-item.active .playlist-name mark.filter-hit {
+  /* On a lit tile the name is white over green — invert the hit instead */
+  background: rgba(0, 0, 0, 0.32);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35);
+}
+
 /* Spotify mode: brand-green treatment so the mode reads instantly */
 #spotify-mode-btn:hover {
   color: #1db954;
@@ -1869,86 +1994,6 @@ body.edit-mode .playlist-item .playlist-name {
   cursor: default;
 }
 
-/* ============================================
-   Keyboard Shortcuts Modal
-   ============================================ */
-.shortcuts-modal {
-  width: min(480px, 92vw);
-}
-
-.shortcut-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: clamp(10px, 1.2vh, 14px) 2px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.shortcut-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.shortcut-name {
-  font-family: var(--font-heading);
-  font-size: clamp(0.8rem, 0.9vw, 1rem);
-  font-weight: 700;
-  letter-spacing: 2px;
-  color: var(--text-primary);
-}
-
-.shortcut-desc {
-  font-family: var(--font-body);
-  font-size: clamp(0.85rem, 0.95vw, 1.05rem);
-  font-weight: 500;
-  color: var(--text-secondary);
-}
-
-.shortcut-recorder {
-  font-family: "JetBrains Mono", var(--font-heading), monospace;
-  font-size: clamp(0.85rem, 0.95vw, 1.05rem);
-  font-weight: 700;
-  letter-spacing: 1px;
-  color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 6px;
-  min-width: 96px;
-  padding: 9px 14px;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: all 0.15s ease;
-}
-
-.shortcut-recorder:hover {
-  border-color: var(--neon-green);
-  box-shadow: 0 0 10px rgba(132, 255, 0, 0.25);
-}
-
-.shortcut-recorder.recording {
-  color: var(--neon-cyan);
-  border-color: var(--neon-cyan);
-  background: rgba(0, 243, 255, 0.08);
-  box-shadow: 0 0 14px rgba(0, 243, 255, 0.4);
-  animation: recorderPulse 1.2s ease-in-out infinite;
-}
-
-@keyframes recorderPulse {
-  0%, 100% { box-shadow: 0 0 8px rgba(0, 243, 255, 0.25); }
-  50% { box-shadow: 0 0 18px rgba(0, 243, 255, 0.55); }
-}
-
-.shortcuts-note {
-  font-family: var(--font-body);
-  font-size: clamp(0.85rem, 0.95vw, 1rem);
-  font-weight: 500;
-  color: var(--text-secondary);
-  padding-top: clamp(12px, 1.4vh, 16px);
-  line-height: 1.5;
-}
 
 /* ============================================
    Toast Notifications
@@ -2151,6 +2196,37 @@ body.theme-light .btn-key {
   border-color: rgba(20, 28, 10, 0.28);
 }
 
+body.theme-light .grid-filter {
+  color: rgba(20, 28, 10, 0.7);
+  background: rgba(20, 28, 10, 0.05);
+  border-color: rgba(20, 28, 10, 0.22);
+}
+body.theme-light .grid-filter:hover {
+  border-color: rgba(20, 28, 10, 0.4);
+}
+body.theme-light .grid-filter:focus-within,
+body.theme-light .grid-filter.active {
+  color: var(--neon-green);
+  border-color: rgba(61, 122, 0, 0.6);
+  background: rgba(61, 122, 0, 0.07);
+}
+body.theme-light .grid-filter:focus-within {
+  box-shadow: 0 0 10px rgba(61, 122, 0, 0.2);
+}
+body.theme-light .grid-filter-input::placeholder {
+  color: rgba(20, 28, 10, 0.45);
+}
+body.theme-light .grid-filter:focus-within .grid-filter-input::placeholder {
+  color: rgba(20, 28, 10, 0.3);
+}
+body.theme-light .grid-filter-clear:hover {
+  background: rgba(201, 23, 74, 0.1);
+}
+body.theme-light .playlist-name mark.filter-hit {
+  background: rgba(61, 122, 0, 0.22);
+  box-shadow: 0 0 0 1px rgba(61, 122, 0, 0.35);
+}
+
 body.theme-light #spotify-mode-btn:hover,
 body.theme-light #spotify-mode-btn.active {
   color: var(--spotify-green);
@@ -2216,15 +2292,6 @@ body.theme-light .editor-btn.primary:hover {
 
 body.theme-light .editor-overlay {
   background: rgba(238, 240, 232, 0.72);
-}
-
-body.theme-light .shortcut-recorder {
-  background: rgba(20, 28, 10, 0.05);
-  border-color: rgba(20, 28, 10, 0.28);
-}
-
-body.theme-light .shortcut-row {
-  border-bottom-color: rgba(20, 28, 10, 0.1);
 }
 
 body.theme-light .toast {
