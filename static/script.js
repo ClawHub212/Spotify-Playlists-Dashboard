@@ -1285,15 +1285,20 @@ function applySidebarAuto(on) {
   updateSidebarAutoUI();
 }
 
-// Filled panel = comes out on its own; dashed outline = manual only.
+// Lucide "eye" = reveals itself on add; Lucide "eye-off" = stays closed.
 function updateSidebarAutoUI() {
   const btn = document.getElementById("sidebar-auto-toggle");
   const icon = document.getElementById("sidebar-auto-toggle-icon");
   if (!btn || !icon) return;
-  const frame = '<rect x="3" y="4" width="18" height="16" rx="2"/>';
-  icon.innerHTML = sidebarAutoReveal
-    ? frame + '<path d="M14 4h5a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-5z" fill="currentColor" stroke="none"/>'
-    : frame + '<line x1="14" y1="4" x2="14" y2="20" stroke-dasharray="2.5 2.5"/>';
+  const eye =
+    '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/>' +
+    '<circle cx="12" cy="12" r="3"/>';
+  const eyeOff =
+    '<path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/>' +
+    '<path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/>' +
+    '<path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/>' +
+    '<path d="m2 2 20 20"/>';
+  icon.innerHTML = sidebarAutoReveal ? eye : eyeOff;
   btn.classList.toggle("active", sidebarAutoReveal);
   btn.setAttribute("aria-pressed", sidebarAutoReveal ? "true" : "false");
   const label = sidebarAutoReveal
