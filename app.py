@@ -869,6 +869,7 @@ def toggle_playlist():
         return jsonify({"error": "Not authenticated"}), 401
 
     artist_followed = False
+    artist_already_followed = False
 
     try:
         if action == 'add':
@@ -885,7 +886,8 @@ def toggle_playlist():
             message = "Added to playlist and Liked Songs."
 
             # 3. Follow the track's main artist (Tracker page only).
-            # Following is idempotent, so no need to check state first.
+            # Check state first so the UI can say "already following" instead
+            # of claiming a fresh follow (the follow call itself is idempotent).
             # A follow failure shouldn't undo a successful add — log and continue.
             if follow_artist:
                 try:
@@ -893,9 +895,14 @@ def toggle_playlist():
                         track = sp.track(track_id)
                         artist_id = track['artists'][0]['id'] if track.get('artists') else None
                     if artist_id:
-                        sp.user_follow_artists([artist_id])
-                        artist_followed = True
-                        message = "Added to playlist, Liked Songs, and followed artist."
+                        following = sp.current_user_following_artists([artist_id])
+                        if following and following[0]:
+                            artist_already_followed = True
+                            message = "Added to playlist and Liked Songs (already following artist)."
+                        else:
+                            sp.user_follow_artists([artist_id])
+                            artist_followed = True
+                            message = "Added to playlist, Liked Songs, and followed artist."
                 except Exception as e:
                     print(f"Error auto-following artist {artist_id}: {e}")
         
@@ -936,7 +943,12 @@ def toggle_playlist():
 
         save_playlist_cache_to_disk()
         invalidate_current_track_cache()  # is_liked may have changed
-        return jsonify({"success": True, "message": message, "artist_followed": artist_followed})
+        return jsonify({
+            "success": True,
+            "message": message,
+            "artist_followed": artist_followed,
+            "artist_already_followed": artist_already_followed,
+        })
 
     except Exception as e:
         print(f"Error toggling playlist: {e}")
@@ -1178,6 +1190,129 @@ def toggle_artist_follow():
             return jsonify({"error": "Invalid action"}), 400
     except Exception as e:
         print(f"Error toggling artist follow state: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+# Album tracklists are immutable once released — cache them in memory so the
+# Queue sidebar costs one Spotify call per album, not one per poll.
+album_tracks_cache = {}
+ALBUM_TRACKS_CACHE_MAX = 60
+
+
+def format_album_duration(total_ms):
+    """Spotify-style total: '49 min 47 sec' under an hour, '1 hr 12 min' over."""
+    total_sec = int(total_ms // 1000)
+    hours, rem = divmod(total_sec, 3600)
+    minutes, seconds = divmod(rem, 60)
+    if hours:
+        return f"{hours} hr {minutes} min"
+    return f"{minutes} min {seconds} sec"
+
+
+@app.route('/api/album-tracks')
+def get_album_tracks():
+    """Album header + full tracklist for the Queue page sidebar."""
+    album_id = request.args.get('album_id')
+    if not album_id:
+        return jsonify({"error": "Missing album_id"}), 400
+
+    if not is_authenticated():
+        return jsonify({"error": "Not authenticated"}), 401
+
+    cached = album_tracks_cache.get(album_id)
+    if cached:
+        return jsonify(cached)
+
+    try:
+        album = sp.album(album_id)
+        items = list(album.get('tracks', {}).get('items', []))
+        page = album.get('tracks')
+        while page and page.get('next'):
+            page = sp.next(page)
+            items.extend(page.get('items', []))
+
+        album_artists = [a['name'] for a in album.get('artists', [])]
+        tracks = []
+        total_ms = 0
+        for t in items:
+            if not t:
+                continue
+            total_ms += t.get('duration_ms') or 0
+            artists = [a['name'] for a in t.get('artists', [])]
+            tracks.append({
+                "id": t.get('id'),
+                "uri": t.get('uri'),
+                "name": t.get('name'),
+                "number": t.get('track_number'),
+                "disc": t.get('disc_number', 1),
+                "artists": ", ".join(artists),
+                # Only surface per-track artists when they differ from the album's
+                "artists_differ": artists != album_artists,
+                "duration_ms": t.get('duration_ms') or 0,
+                "explicit": bool(t.get('explicit')),
+            })
+
+        album_type = (album.get('album_type') or 'album').upper()
+        if album_type == 'SINGLE' and len(tracks) >= 4:
+            album_type = 'EP'
+        release_date = album.get('release_date') or ''
+
+        payload = {
+            "id": album.get('id'),
+            "uri": album.get('uri'),
+            "name": album.get('name'),
+            "type": album_type,
+            "artist_name": ", ".join(album_artists),
+            "artist_id": album['artists'][0]['id'] if album.get('artists') else None,
+            "artwork": album['images'][0]['url'] if album.get('images') else None,
+            "release_date": release_date,
+            "year": release_date[:4],
+            "total_tracks": len(tracks),
+            "duration_ms": total_ms,
+            "duration_label": format_album_duration(total_ms),
+            "tracks": tracks,
+        }
+
+        if len(album_tracks_cache) >= ALBUM_TRACKS_CACHE_MAX:
+            album_tracks_cache.pop(next(iter(album_tracks_cache)))
+        album_tracks_cache[album_id] = payload
+        return jsonify(payload)
+
+    except spotipy.exceptions.SpotifyException as e:
+        if e.http_status == 429:
+            retry_after = int(e.headers.get('Retry-After', 5))
+            return jsonify({"error": "Rate limit", "retry_after": retry_after}), 429
+        print(f"Spotify error fetching album tracks: {e}")
+        return jsonify({"error": str(e)}), 500
+    except Exception as e:
+        print(f"Error fetching album tracks: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/play-album-track', methods=['POST'])
+def play_album_track():
+    """Start playback of one track inside its album context (Queue sidebar)."""
+    data = request.json or {}
+    album_id = data.get('album_id')
+    track_uri = data.get('track_uri')
+    if not all([album_id, track_uri]):
+        return jsonify({"error": "Missing data"}), 400
+
+    if not is_authenticated():
+        return jsonify({"error": "Not authenticated"}), 401
+
+    try:
+        sp.start_playback(context_uri=f"spotify:album:{album_id}", offset={"uri": track_uri})
+        invalidate_current_track_cache()
+        return jsonify({"success": True})
+    except spotipy.exceptions.SpotifyException as e:
+        # 404 NO_ACTIVE_DEVICE is the common failure: nothing is playing anywhere
+        if e.http_status == 404:
+            return jsonify({"error": "No active Spotify device — start playback in Spotify first"}), 404
+        print(f"Spotify error starting album track: {e}")
+        return jsonify({"error": str(e)}), 500
+    except Exception as e:
+        print(f"Error starting album track: {e}")
         return jsonify({"error": str(e)}), 500
 
 

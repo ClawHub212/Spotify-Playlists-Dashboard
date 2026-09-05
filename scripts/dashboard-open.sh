@@ -21,6 +21,8 @@
 #
 # Add --background (anywhere in the arguments) to relaunch without stealing
 # focus — the app orders its window in behind whatever you're working in.
+# Add --restart to relaunch even when the target is already live — needed
+# after an app.py edit, since Flask only re-reads it on a fresh start.
 #
 # Prints one line describing what's now live — the Keyboard Maestro macro
 # ("Playlist") shows it as a notification so the active branch is never a guess.
@@ -76,9 +78,12 @@ newest_touch() {
 branch_of() { git -C "$1" rev-parse --abbrev-ref HEAD 2>/dev/null }
 
 background=0
+force_restart=0
 args=()
 for a in "$@"; do
-    if [[ "$a" == "--background" ]]; then background=1; else args+=("$a"); fi
+    if [[ "$a" == "--background" ]]; then background=1
+    elif [[ "$a" == "--restart" ]]; then force_restart=1
+    else args+=("$a"); fi
 done
 set -- "${args[@]:-}"
 
@@ -135,11 +140,12 @@ if [[ -n "$app_pid" ]]; then
     fi
 fi
 
-if [[ -n "$app_pid" && "$serving" == "$target" && $stale_binary -eq 0 ]]; then
+if [[ -n "$app_pid" && "$serving" == "$target" && $stale_binary -eq 0 && $force_restart -eq 0 ]]; then
     (( background )) || /usr/bin/open "$APP_BUNDLE"
     action="already live"
 else
     (( stale_binary )) && restart_reason=" (new build)"
+    (( force_restart )) && [[ -z "$restart_reason" ]] && restart_reason=" (backend reloaded)"
     if [[ -n "$app_pid" ]]; then
         # Quit gracefully so the app takes its Flask child down with it.
         /usr/bin/osascript -e 'tell application id "com.spotifydashboard.app" to quit' >/dev/null 2>&1

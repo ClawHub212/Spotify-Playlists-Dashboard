@@ -564,6 +564,17 @@ function updateTrackInfo(track) {
         if (track.album_total_tracks) parts.push(`${track.album_total_tracks} TRACKS`);
         meta.textContent = parts.join(" · ");
       }
+      // The album sidebar is the point of this page: reveal it once a track is
+      // known (respecting the auto-reveal switch), then keep the lit row and
+      // its play/pause state in step with every poll while it's open.
+      if (typeof sidebarState !== "undefined") {
+        if (!sidebarState.albumAutoOpened && sidebarAutoReveal && !sidebarState.isOpen) {
+          sidebarState.albumAutoOpened = true;
+          showAlbumSidebar(track);
+        } else if (sidebarState.isOpen) {
+          syncAlbumSidebar(track);
+        }
+      }
     } else {
       // Other pages: show track title and artist
       if (title) title.textContent = track.name;
@@ -1179,16 +1190,21 @@ async function togglePlaylist(playlist) {
         );
       }
 
-      // Trigger sidebar on ADD only (Playlists & Tracker pages), and only when
-      // auto-reveal is armed — an already-open sidebar still refreshes.
-      if (action === "add" && !isQueue && currentTrack) {
+      // Trigger sidebar on ADD only, and only when auto-reveal is armed — an
+      // already-open sidebar still refreshes. (Queue: the album sidebar.)
+      if (action === "add" && currentTrack) {
         // Tracker adds auto-follow the main artist server-side; patch any
-        // cached sidebar entry so its follow button isn't stale
-        if (isTracker && data.artist_followed) {
+        // cached sidebar entry so its follow button isn't stale, and say
+        // whether this add actually started the follow or you already were.
+        if (isTracker && (data.artist_followed || data.artist_already_followed)) {
           const mainArtist = currentTrack.artist.split(",")[0].trim();
           const cached = sidebarState.artistCache[mainArtist];
           if (cached && cached !== "empty") cached.is_following = true;
-          showToast(`Now following ${mainArtist}`);
+          showToast(
+            data.artist_already_followed
+              ? `Already following ${mainArtist}`
+              : `Now following ${mainArtist}`,
+          );
         }
         if (sidebarAutoReveal || sidebarState.isOpen) showArtistSidebar(currentTrack);
       }
@@ -1263,6 +1279,10 @@ let sidebarState = {
   artistCache: {},         // Cache: artistName -> release data
   isLibrarySaved: false,
   isFollowing: false,
+  // Queue page — album sidebar
+  albumCache: {},          // Cache: albumId -> album + tracklist
+  currentAlbum: null,      // The album currently shown in the Queue sidebar
+  albumAutoOpened: false,  // One-time auto-reveal on load (Queue page)
 };
 
 // ============================================
@@ -1332,8 +1352,9 @@ function initSidebar() {
   if (autoBtn) autoBtn.addEventListener("click", toggleSidebarAuto);
   updateSidebarAutoUI();
 
-  // Fetch queue playlists for sidebar use
-  fetchQueuePlaylistsForSidebar();
+  // Fetch queue playlists for sidebar use (the Queue page's own sidebar shows
+  // the album tracklist instead, so it has no list to fill)
+  if (!document.body.classList.contains("queue-page")) fetchQueuePlaylistsForSidebar();
 }
 
 /**
@@ -1393,6 +1414,10 @@ function toggleSidebar() {
 async function showArtistSidebar(track) {
   const sidebar = document.getElementById("artist-sidebar");
   if (!sidebar) return;
+
+  // The Queue page's sidebar showcases the current ALBUM, not the artist's
+  // latest release — every open path (⌘S, edge handle, add, poll) lands here
+  if (document.body.classList.contains("queue-page")) return showAlbumSidebar(track);
 
   // Get first artist name (handle comma-separated)
   const artistName = track.artist.split(",")[0].trim();
@@ -1503,6 +1528,207 @@ async function populateSidebar(release) {
   // Wire up follow button
   sidebarState.isFollowing = release.is_following || false;
   setupFollowButton(release.artist_id);
+}
+
+// ============================================
+// Album Sidebar (Queue page)
+// The same aside/ids as the artist sidebar, but it showcases the CURRENT
+// ALBUM: art, name, artist, "2026 • 28 songs, 49 min 47 sec", the library
+// button, and the full tracklist with the playing track lit (Spotify-style
+// equalizer bars, or a static marker while paused). Tracklists never change,
+// so each album is fetched once per page load.
+// ============================================
+function openSidebarShell() {
+  const sidebar = document.getElementById("artist-sidebar");
+  if (!sidebar || sidebarState.isOpen) return;
+  sidebarState.isOpen = true;
+  sidebar.classList.add("open");
+  document.querySelector(".playlist-section")?.classList.add("sidebar-open");
+  document.body.classList.add("sidebar-open");
+}
+
+async function showAlbumSidebar(track) {
+  const sidebar = document.getElementById("artist-sidebar");
+  if (!sidebar) return;
+  openSidebarShell();
+  if (!track || !track.album_id) return;
+
+  const cached = sidebarState.albumCache[track.album_id];
+  if (cached) {
+    if (!sidebarState.currentAlbum || sidebarState.currentAlbum.id !== cached.id) {
+      populateAlbumSidebar(cached);
+    }
+    syncAlbumSidebar(track);
+    return;
+  }
+
+  const content = document.getElementById("sidebar-content");
+  if (content) content.classList.add("sidebar-loading");
+  try {
+    const res = await fetch(`/api/album-tracks?album_id=${encodeURIComponent(track.album_id)}`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      console.warn("Failed to fetch album tracks:", err?.error);
+      return;
+    }
+    const album = await res.json();
+    sidebarState.albumCache[album.id] = album;
+    // The track may have moved on while we fetched — only show what's current
+    if (currentTrack && currentTrack.album_id !== album.id) return;
+    populateAlbumSidebar(album);
+    syncAlbumSidebar(currentTrack || track);
+  } catch (e) {
+    console.error("Error fetching album tracks:", e);
+  } finally {
+    if (content) content.classList.remove("sidebar-loading");
+  }
+}
+
+function populateAlbumSidebar(album) {
+  sidebarState.currentAlbum = album;
+  sidebarState.currentRelease = album; // keeps the shared library button logic happy
+
+  const artwork = document.getElementById("sidebar-artwork");
+  if (artwork && album.artwork) {
+    artwork.src = album.artwork;
+    artwork.alt = `${album.name} artwork`;
+  }
+  const badge = document.getElementById("sidebar-release-badge");
+  if (badge) badge.textContent = album.type || "ALBUM";
+  const name = document.getElementById("sidebar-release-name");
+  if (name) name.textContent = album.name || "—";
+  const artist = document.getElementById("sidebar-artist-name");
+  if (artist) artist.textContent = album.artist_name || "—";
+
+  // Spotify's own header line: "2026 • 28 songs, 49 min 47 sec"
+  const stats = document.getElementById("sidebar-release-date");
+  if (stats) {
+    const songs = `${album.total_tracks} ${album.total_tracks === 1 ? "song" : "songs"}`;
+    stats.textContent = [album.year, `${songs}, ${album.duration_label}`].filter(Boolean).join(" • ");
+  }
+
+  checkAlbumLibraryStatus(album.id);
+  setupLibraryButton(album.id);
+  renderAlbumTracklist(album);
+}
+
+function formatTrackDuration(ms) {
+  const total = Math.round((ms || 0) / 1000);
+  const m = Math.floor(total / 60);
+  const sec = total % 60;
+  return `${m}:${String(sec).padStart(2, "0")}`;
+}
+
+function renderAlbumTracklist(album) {
+  const list = document.getElementById("sidebar-tracklist");
+  if (!list) return;
+  list.innerHTML = "";
+  const multiDisc = album.tracks.some((t) => (t.disc || 1) > 1);
+  let lastDisc = 0;
+
+  album.tracks.forEach((t) => {
+    if (multiDisc && t.disc !== lastDisc) {
+      lastDisc = t.disc;
+      const disc = document.createElement("div");
+      disc.className = "sidebar-track-disc";
+      disc.textContent = `Disc ${t.disc}`;
+      list.appendChild(disc);
+    }
+
+    const row = document.createElement("div");
+    row.className = "sidebar-track";
+    row.dataset.trackId = t.id || "";
+    row.setAttribute("role", "listitem");
+
+    // Left cell: number at rest, equalizer when it's the playing track,
+    // and a play button on hover (mirrors Spotify's album view)
+    const lead = document.createElement("div");
+    lead.className = "sidebar-track-lead";
+    lead.innerHTML =
+      `<span class="sidebar-track-num">${t.number}</span>` +
+      '<span class="sidebar-track-eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span>' +
+      `<button type="button" class="sidebar-track-play" aria-label="Play ${t.name}" title="Play">` +
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></button>';
+    lead.querySelector(".sidebar-track-play").onclick = (e) => {
+      e.stopPropagation();
+      playAlbumTrack(album, t, row);
+    };
+
+    const body = document.createElement("div");
+    body.className = "sidebar-track-body";
+    const title = document.createElement("div");
+    title.className = "sidebar-track-title";
+    title.textContent = t.name;
+    title.title = t.name;
+    body.appendChild(title);
+    const sub = document.createElement("div");
+    sub.className = "sidebar-track-artist";
+    if (t.explicit) {
+      const e = document.createElement("span");
+      e.className = "sidebar-track-explicit";
+      e.textContent = "E";
+      e.title = "Explicit";
+      sub.appendChild(e);
+    }
+    sub.appendChild(document.createTextNode(t.artists));
+    body.appendChild(sub);
+
+    const dur = document.createElement("div");
+    dur.className = "sidebar-track-dur";
+    dur.textContent = formatTrackDuration(t.duration_ms);
+
+    row.appendChild(lead);
+    row.appendChild(body);
+    row.appendChild(dur);
+    row.ondblclick = () => playAlbumTrack(album, t, row);
+    list.appendChild(row);
+  });
+}
+
+/**
+ * Light the row for the track that's playing and mirror play/pause. Called on
+ * every poll while the sidebar is open; refetches only when the album changed.
+ */
+function syncAlbumSidebar(track) {
+  if (!track) return;
+  if (!sidebarState.currentAlbum || sidebarState.currentAlbum.id !== track.album_id) {
+    showAlbumSidebar(track);
+    return;
+  }
+  const list = document.getElementById("sidebar-tracklist");
+  if (!list) return;
+  let current = null;
+  list.querySelectorAll(".sidebar-track").forEach((row) => {
+    const isCurrent = row.dataset.trackId === track.id;
+    row.classList.toggle("current", isCurrent);
+    row.classList.toggle("paused", isCurrent && !track.is_playing);
+    if (isCurrent) current = row;
+  });
+  if (current) current.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
+async function playAlbumTrack(album, t, row) {
+  try {
+    const res = await fetch("/api/play-album-track", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ album_id: album.id, track_uri: t.uri }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) {
+      showToast(data.error || "Couldn't start playback", "error");
+      return;
+    }
+    // Optimistic: light this row now; the next poll confirms it
+    if (currentTrack) syncAlbumSidebar({ ...currentTrack, id: t.id, is_playing: true, album_id: album.id });
+    else if (row) {
+      row.parentElement.querySelectorAll(".sidebar-track").forEach((r) => r.classList.remove("current", "paused"));
+      row.classList.add("current");
+    }
+  } catch (e) {
+    console.error("Error starting album track:", e);
+    showToast("Network error", "error");
+  }
 }
 
 /**
@@ -1803,13 +2029,9 @@ async function toggleSidebarQueueItem(queuePlaylist) {
   }
 }
 
-// Initialize sidebar on DOM ready (for playlists and tracker pages only)
-document.addEventListener("DOMContentLoaded", () => {
-  const isQueue = document.body.classList.contains("queue-page");
-  if (!isQueue) {
-    initSidebar();
-  }
-});
+// Initialize sidebar on DOM ready — artist release on Playlists/Tracker,
+// album tracklist on Queue (same shell, see showAlbumSidebar)
+document.addEventListener("DOMContentLoaded", initSidebar);
 
 // ⌘S fallback: the desktop app's native key monitor normally handles ⌘S and
 // swallows the event before it reaches the page, so this never double-fires.

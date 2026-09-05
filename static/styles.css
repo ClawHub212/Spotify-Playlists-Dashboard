@@ -1146,6 +1146,240 @@ body.tracker-page .sidebar-release-date {
   text-shadow: 0 0 8px rgba(188, 19, 254, 0.4);
 }
 
+body.queue-page .sidebar-release-date {
+  color: var(--neon-orange);
+  text-shadow: 0 0 8px rgba(var(--page-accent-rgb), 0.4);
+}
+
+/* ========================================
+   Album Sidebar (Queue page) — tracklist
+   ======================================== */
+.album-sidebar .sidebar-album-head {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(10px, 1.2vh, 16px);
+  flex-shrink: 0;
+}
+
+.album-sidebar .sidebar-actions {
+  flex-shrink: 0;
+}
+
+.sidebar-tracklist-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-height: 0;
+}
+
+.sidebar-tracklist-label {
+  display: grid;
+  grid-template-columns: 26px 1fr auto;
+  gap: 8px;
+  padding: 0 clamp(6px, 0.6vw, 10px) 6px;
+}
+
+.sidebar-tracklist-label-dur {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.sidebar-tracklist {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  scroll-padding: 40px 0;
+}
+
+.sidebar-track {
+  display: grid;
+  grid-template-columns: 26px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: clamp(5px, 0.6vh, 8px) clamp(6px, 0.6vw, 10px);
+  border-radius: 6px;
+  border: 1px solid transparent;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  cursor: default;
+}
+
+.sidebar-track:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.sidebar-track-disc {
+  font-family: var(--font-heading);
+  font-size: clamp(0.6rem, 0.7vw, 0.75rem);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.3);
+  padding: 8px clamp(6px, 0.6vw, 10px) 2px;
+}
+
+.sidebar-track-lead {
+  position: relative;
+  width: 26px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar-track-num {
+  font-family: var(--font-mono);
+  font-size: clamp(0.78rem, 0.8vw, 0.9rem);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Equalizer — Spotify's "this one is playing" marker, in the page accent */
+.sidebar-track-eq {
+  display: none;
+  align-items: flex-end;
+  gap: 2px;
+  height: 14px;
+}
+
+.sidebar-track-eq i {
+  display: block;
+  width: 3px;
+  height: 100%;
+  background: var(--page-accent);
+  border-radius: 1px;
+  box-shadow: 0 0 6px rgba(var(--page-accent-rgb), 0.6);
+  transform-origin: bottom;
+  animation: sidebarEq 0.9s ease-in-out infinite alternate;
+}
+
+.sidebar-track-eq i:nth-child(1) { animation-delay: -0.35s; }
+.sidebar-track-eq i:nth-child(2) { animation-delay: -0.7s; }
+.sidebar-track-eq i:nth-child(3) { animation-delay: -0.15s; }
+.sidebar-track-eq i:nth-child(4) { animation-delay: -0.55s; }
+
+@keyframes sidebarEq {
+  0% { transform: scaleY(0.25); }
+  100% { transform: scaleY(1); }
+}
+
+/* Paused: the bars hold still instead of dancing */
+.sidebar-track.paused .sidebar-track-eq i {
+  animation: none;
+  transform: scaleY(0.4);
+  opacity: 0.7;
+}
+
+.sidebar-track.current .sidebar-track-num { display: none; }
+.sidebar-track.current .sidebar-track-eq { display: flex; }
+
+.sidebar-track.current {
+  background: rgba(var(--page-accent-rgb), 0.08);
+  border-color: rgba(var(--page-accent-rgb), 0.35);
+  box-shadow: inset 0 0 12px rgba(var(--page-accent-rgb), 0.08);
+}
+
+.sidebar-track.current .sidebar-track-title {
+  color: var(--page-accent);
+  text-shadow: 0 0 8px rgba(var(--page-accent-rgb), 0.45);
+}
+
+/* Hover play button replaces whatever the lead cell is showing */
+.sidebar-track-play {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--text-primary);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.sidebar-track-play svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+  filter: drop-shadow(0 0 4px rgba(0, 0, 0, 0.6));
+}
+
+.sidebar-track:hover .sidebar-track-play,
+.sidebar-track-play:focus-visible {
+  opacity: 1;
+}
+
+.sidebar-track:hover .sidebar-track-num,
+.sidebar-track:hover .sidebar-track-eq {
+  visibility: hidden;
+}
+
+.sidebar-track-play:focus-visible {
+  outline: 2px solid var(--page-accent);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+
+.sidebar-track-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.sidebar-track-title {
+  font-family: var(--font-body);
+  font-size: clamp(0.9rem, 0.95vw, 1.05rem);
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+}
+
+.sidebar-track-artist {
+  font-family: var(--font-body);
+  font-size: clamp(0.75rem, 0.8vw, 0.88rem);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  line-height: 1.2;
+}
+
+.sidebar-track-explicit {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  font-weight: 600;
+  line-height: 1;
+  padding: 2px 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.18);
+  color: rgba(0, 0, 0, 0.85);
+}
+
+.sidebar-track-dur {
+  font-family: var(--font-mono);
+  font-size: clamp(0.75rem, 0.78vw, 0.86rem);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  padding-left: 4px;
+}
+
+.sidebar-loading .sidebar-tracklist {
+  opacity: 0;
+}
+
 /* Library Action Button */
 .sidebar-actions {
   display: flex;
@@ -1454,6 +1688,28 @@ body.tracker-page .sidebar-toggle:focus-visible {
   outline-color: var(--neon-purple);
 }
 
+/* Queue page — the album sidebar wears the page's orange accent */
+body.queue-page .sidebar-toggle:hover {
+  border-color: rgba(var(--page-accent-rgb), 0.2);
+  color: var(--neon-orange);
+}
+
+body.queue-page .sidebar-toggle:focus-visible,
+body.queue-page .sidebar-action-btn:focus-visible {
+  outline-color: var(--neon-orange);
+}
+
+body.queue-page .sidebar-action-btn.saved {
+  border-color: var(--neon-orange);
+  color: var(--neon-orange);
+  box-shadow: 0 0 12px rgba(var(--page-accent-rgb), 0.15);
+}
+
+body.queue-page .sidebar-action-btn.saved svg {
+  fill: var(--neon-orange);
+  stroke: var(--neon-orange);
+}
+
 /* ========================================
    Sidebar open — push main content
    ======================================== */
@@ -1501,6 +1757,10 @@ body.tracker-page .sidebar-toggle:focus-visible {
   }
   .sidebar-artwork-wrap:hover .sidebar-artwork {
     transform: none;
+  }
+  .sidebar-track-eq i {
+    animation: none;
+    transform: scaleY(0.6);
   }
   .sidebar-loading .sidebar-artwork-wrap,
   .sidebar-loading .sidebar-release-name,
@@ -2364,6 +2624,23 @@ body.theme-light .sidebar-content.empty-state .sidebar-release-name {
 
 body.theme-light .sidebar-content.empty-state .sidebar-artist-name {
   color: rgba(20, 28, 10, 0.4);
+}
+
+body.theme-light .sidebar-track:hover {
+  background: rgba(20, 28, 10, 0.06);
+}
+
+body.theme-light .sidebar-track-disc {
+  color: rgba(20, 28, 10, 0.45);
+}
+
+body.theme-light .sidebar-track-explicit {
+  background: rgba(20, 28, 10, 0.55);
+  color: #fff;
+}
+
+body.theme-light .sidebar-track-play svg {
+  filter: none;
 }
 
 body.theme-light ::-webkit-scrollbar-track {
