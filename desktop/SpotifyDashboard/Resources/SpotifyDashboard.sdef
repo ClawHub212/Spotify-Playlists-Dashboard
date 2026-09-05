@@ -1,19 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE dictionary SYSTEM "file://localhost/System/Library/DTDs/sdef.dtd">
-<dictionary title="Spotify Dashboard Terminology">
+<dictionary title="Spotify Dashboard (old) Terminology">
 
     <!--
-        Spotify Dashboard AppleScript Dictionary
+        Spotify Dashboard (old) AppleScript Dictionary
 
         Usage examples:
-            tell application "Spotify Dashboard"
+            tell application "Spotify Dashboard (old)"
                 show page "playlist"
                 toggle page "tracker"
                 hide app
             end tell
     -->
 
-    <suite name="Spotify Dashboard Suite" code="SPDs" description="Commands for controlling Spotify Dashboard">
+    <suite name="Spotify Dashboard Suite" code="SPDs" description="Commands for controlling Spotify Dashboard (old)">
 
         <!-- Show Page: Display the app and navigate to a specific page -->
         <command name="show page" code="SPDsshpg" description="Show the app window and navigate to a page">

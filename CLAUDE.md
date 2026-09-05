@@ -1,4 +1,6 @@
-# Spotify Dashboard
+# Spotify Dashboard (old)
+
+> **Retired v1 (09-05-26).** App, repo (`BoltHub973/Spotify-Dashboard-old`) and folder (`~/Development/Spotify Dashboard (old)`) carry the “(old)” suffix; the rebuild lives in the new `Spotify Dashboard` repo (see `docs/spotify-dashboard-v2-rebuild-prompt.md`). Keyboard Maestro / Raycast launchers were deliberately left pointing at the plain `Spotify Dashboard` name and path — they belong to the new app.
 
 Local web dashboard + native macOS wrapper that shows which of your playlists contain the currently playing Spotify track, with one-click add/remove.
 
@@ -6,7 +8,7 @@ Local web dashboard + native macOS wrapper that shows which of your playlists co
 
 - **Backend**: Flask (`app.py`), port **8888**, Spotify via `spotipy`. Run: `.venv/bin/python app.py` (system `python3` lacks the deps).
 - **Frontend**: vanilla JS — `static/script.js` + `playlists.html` / `tracker.html` / `queue.html` + `styles.css`. No build step; served with no-cache headers.
-- **Desktop app**: `desktop/SpotifyDashboard/` (Swift, no Xcode project). Build: `desktop/SpotifyDashboard/build.sh` → installs to `/Applications/Spotify Dashboard.app`; add `--relaunch` to restart the app on the checkout you built from, in the background. Launch: `desktop/run.sh`.
+- **Desktop app**: `desktop/SpotifyDashboard/` (Swift, no Xcode project). Build: `desktop/SpotifyDashboard/build.sh` → installs to `/Applications/Spotify Dashboard (old).app`; add `--relaunch` to restart the app on the checkout you built from, in the background. Launch: `desktop/run.sh`.
 
 ## Architecture
 
@@ -19,7 +21,7 @@ Local web dashboard + native macOS wrapper that shows which of your playlists co
 - The last menu-bar menu (`VersionMenuController.swift`) names the checkout being served — `⎇ <human name> · <relative time>` — with branch, path, when the code last changed, a stale-binary warning, and **Open in Claude Code**. A menu-bar item renders its **submenu's** title, not the item's, so both must be set.
 - **Worktree names** come from, in order: `~/.claude/worktree-labels.json` (set with `scripts/name-worktree.sh "Human Name"`, keyed by path, outside the repo so it never touches git status) → the Claude Code chat's own title → the branch cleaned up (`claude/playlist-emoji-display-name-977537` → "Playlist Emoji Display Name"). So the menu normally mirrors the chat name in Claude Code's sidebar with no setup.
 - **Open in Claude Code** reads the desktop app's session store (`~/Library/Application Support/Claude/claude-code-sessions/<org>/<user>/local_*.json` — cwd, title, `sessionId`, `cliSessionId`, `isArchived`) and opens **`claude://claude.ai/epitaxy/local_<id>`**, which navigates the app to that exact chat. The host must be `claude.ai` (`epitaxy` is the Code surface's internal route); `claude://epitaxy/…`, `claude://local_sessions/…` and `claude://code/…` are not dispatched. `claude://resume?session=<cli id>` is the fallback only — it *imports* a transcript, so on a chat the app already holds it spawns a second untitled copy ("General coding session"). Verified 08-15-26 by watching `lastFocusedAt` in the store.
-- `build.sh` installs to `/Applications` and deletes its staging copy, so exactly one `Spotify Dashboard.app` exists on disk — two bundles with the same identifier let LaunchServices/AppleScript launch a stale build.
+- `build.sh` installs to `/Applications` and deletes its staging copy, so exactly one `Spotify Dashboard (old).app` exists on disk — two bundles with the same identifier let LaunchServices/AppleScript launch a stale build.
 - `/api/open-in-spotify` POSTs run `open spotify:playlist:<id>` locally to open the Spotify desktop app.
 - The header repeat icon is also a Keyboard Maestro hook: `/api/toggle-repeat` fires the **Repeat Toggle** macro (`91EEA4DF-857F-415B-93D8-4584BCD4E92B`, group "Spotify Dashboard - External") through the `keyboardmaestro` CLI with `-p On|Off`; the macro branches on `%TriggerValue%` to mirror the state into `xbarrepeat__status` / `nRepeatStatus`. Trigger it with a parameter or it always reads as Off.
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Build script for Spotify Dashboard macOS app
+# Build script for the Spotify Dashboard (old) macOS app — v1, retired 09-05-26
 # Compiles Swift sources into a .app bundle using swiftc (no Xcode project required)
 #
 # Prerequisites: Xcode Command Line Tools (xcode-select --install)
@@ -62,7 +62,7 @@ fi
 CHECKOUT_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
 [ -n "$CHECKOUT_ROOT" ] || CHECKOUT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-APP_NAME="Spotify Dashboard"
+APP_NAME="Spotify Dashboard (old)"
 BUNDLE_NAME="SpotifyDashboard"
 # Build into a staging dir, then install to /Applications (the canonical home).
 APP_BUNDLE="$BUILD_DIR/${APP_NAME}.app"
@@ -174,7 +174,7 @@ codesign --force --sign - "$APP_BUNDLE"
 echo "[4/5] Installing to ${INSTALL_DIR}..."
 if rm -rf "$INSTALLED_APP" 2>/dev/null && ditto "$APP_BUNDLE" "$INSTALLED_APP" 2>/dev/null; then
     codesign --force --sign - "$INSTALLED_APP" 2>/dev/null || true
-    # Leave exactly ONE "Spotify Dashboard.app" on disk. The staging copy is a
+    # Leave exactly ONE "Spotify Dashboard (old).app" on disk. The staging copy is a
     # second bundle carrying the same identifier, so LaunchServices (and anything
     # that resolves the app by name — AppleScript, Keyboard Maestro, Spotlight,
     # Raycast) can pick it and launch a stale build. Drop it, then re-register the

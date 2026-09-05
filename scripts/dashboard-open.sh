@@ -1,6 +1,6 @@
 #!/bin/zsh
 #
-# dashboard-open.sh — open Spotify Dashboard on the checkout you're actually
+# dashboard-open.sh — open Spotify Dashboard (old) on the checkout you're actually
 # working in, worktrees included.
 #
 # Why this exists: the installed app resolves its project root from the
@@ -33,10 +33,10 @@ restart_reason=""
 # Keyboard Maestro / launchd hand us a minimal environment.
 export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$PATH"
 
-MAIN_ROOT="${SPOTIFY_DASHBOARD_MAIN:-$HOME/Development/Spotify Dashboard}"
-APP_BUNDLE="/Applications/Spotify Dashboard.app"
+MAIN_ROOT="${SPOTIFY_DASHBOARD_MAIN:-$HOME/Development/Spotify Dashboard (old)}"
+APP_BUNDLE="/Applications/Spotify Dashboard (old).app"
 PORT=8888
-APP_PROC="Spotify Dashboard.app/Contents/MacOS/SpotifyDashboard"
+APP_PROC="Spotify Dashboard (old).app/Contents/MacOS/SpotifyDashboard"
 
 # Gitignored files that live only in the main checkout — credentials, the
 # Spotify token, the playlist config, the persisted playlist-track cache, and
@@ -50,8 +50,8 @@ die() { print -r -- "$1" >&2; exit 1 }
 
 # Prefer the installed app; fall back to a staging build if an install failed.
 if [[ ! -d "$APP_BUNDLE" ]]; then
-    APP_BUNDLE="$MAIN_ROOT/desktop/SpotifyDashboard/build/Spotify Dashboard.app"
-    [[ -d "$APP_BUNDLE" ]] || die "No Spotify Dashboard build found — run desktop/SpotifyDashboard/build.sh"
+    APP_BUNDLE="$MAIN_ROOT/desktop/SpotifyDashboard/build/Spotify Dashboard (old).app"
+    [[ -d "$APP_BUNDLE" ]] || die "No Spotify Dashboard (old) build found — run desktop/SpotifyDashboard/build.sh"
 fi
 
 # ── 1. Which checkout? ───────────────────────────────────────────────────────

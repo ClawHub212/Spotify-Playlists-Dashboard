@@ -1,0 +1,543 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Playlists · V1 Fixed Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+/* ─────────────────────────────────────────────────────────────
+   V1 · FIXED BOARD — HUD / Tactical
+   The board never moves: every playlist has a permanent seat,
+   lit in place when the track is in it. A status rail above the
+   board lists what's lit, so the glance and the muscle memory
+   both work.
+   ───────────────────────────────────────────────────────────── */
+:root {
+  --bg: #07090a;
+  --bg-2: #0c1012;
+  --panel: rgba(255, 255, 255, 0.025);
+  --panel-2: rgba(255, 255, 255, 0.045);
+  --line: rgba(255, 255, 255, 0.08);
+  --line-2: rgba(255, 255, 255, 0.14);
+  --ink: 255, 255, 255;
+  --text: #eef2ec;
+  --text-2: #b9c2b4;
+  --text-3: #7d8778;
+  --accent: #84ff00;
+  --accent-rgb: 132, 255, 0;
+  --on-accent: #0b1500;
+  --cyan: #00f3ff;
+  --cyan-rgb: 0, 243, 255;
+  --violet: #8b5cf6;
+  --violet-rgb: 139, 92, 246;
+  --orange: #ff8c00;
+  --error: #ff4d6d;
+  --spotify: #1ed760;
+  --tile-active-top: #78e600;
+  --tile-active-bot: #4aaf00;
+  --grid-line: rgba(255, 255, 255, 0.03);
+  --font-display: "Chakra Petch", "Rajdhani", sans-serif;
+  --font-mono: "IBM Plex Mono", "JetBrains Mono", monospace;
+}
+body.theme-light {
+  --bg: #eef0e8;
+  --bg-2: #e5e8de;
+  --panel: rgba(255, 255, 255, 0.55);
+  --panel-2: rgba(20, 28, 10, 0.05);
+  --line: rgba(20, 28, 10, 0.14);
+  --line-2: rgba(20, 28, 10, 0.24);
+  --ink: 20, 28, 10;
+  --text: #1d2418;
+  --text-2: #49523f;
+  --text-3: #6b745f;
+  --accent: #3d7a00;
+  --accent-rgb: 61, 122, 0;
+  --on-accent: #ffffff;
+  --cyan: #006d7a;
+  --cyan-rgb: 0, 109, 122;
+  --violet: #6d28d9;
+  --violet-rgb: 109, 40, 217;
+  --orange: #9c5000;
+  --error: #c9174a;
+  --spotify: #0f7a37;
+  --tile-active-top: #4f9c00;
+  --tile-active-bot: #356900;
+  --grid-line: rgba(20, 28, 10, 0.05);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+[hidden] { display: none !important; }
+html { font-size: 17px; }
+body {
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-display);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+/* Ambient: an art-tinted wash + a faint HUD grid. No grain, no scanlines. */
+body::before {
+  content: "";
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(ellipse at 6% 0%, rgba(255, 96, 60, 0.16) 0%, transparent 42%),
+    radial-gradient(ellipse at 90% 100%, rgba(var(--accent-rgb), 0.08) 0%, transparent 45%),
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: auto, auto, 40px 40px, 40px 40px;
+}
+.app { position: relative; z-index: 1; height: 100vh; display: flex; flex-direction: column; }
+
+/* ── Header ───────────────────────────────────────────────── */
+.hud {
+  flex: none;
+  height: 100px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 0 22px;
+  background: rgba(var(--ink), 0.02);
+  border-bottom: 1px solid var(--line);
+  position: relative;
+}
+.art {
+  width: 72px; height: 72px; border-radius: 8px; flex: none;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(var(--ink), 0.08);
+}
+.np { min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow {
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--font-mono); font-size: 14px; font-weight: 500;
+  letter-spacing: 0.18em; color: var(--accent); text-transform: uppercase;
+}
+.eyebrow .time { color: var(--text-3); letter-spacing: 0.06em; font-variant-numeric: tabular-nums; }
+.dot {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--accent);
+  box-shadow: 0 0 10px var(--accent); animation: npPulse 2.2s ease-in-out infinite;
+}
+@keyframes npPulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+.title {
+  font-size: 28px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  text-shadow: 0 0 18px rgba(var(--ink), 0.18);
+}
+.sub { display: flex; align-items: baseline; gap: 12px; min-width: 0; font-size: 19px; }
+.sub .artist { color: var(--text); font-weight: 600; white-space: nowrap; }
+.sub .meta {
+  font-family: var(--font-mono); font-size: 14px; letter-spacing: 0.08em; color: var(--text-2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-transform: uppercase;
+}
+.sub .meta b { color: var(--text); font-weight: 600; border: 1px solid var(--line-2); border-radius: 3px; padding: 0 5px; }
+.sub .meta .liked { color: var(--accent); }
+
+/* Page switcher — the three pages are one app; this is the first in-page way between them */
+.pages {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  display: flex; gap: 4px; padding: 4px;
+  background: rgba(var(--ink), 0.04); border: 1px solid var(--line); border-radius: 10px;
+}
+.page {
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 8px 16px; border-radius: 7px; cursor: pointer; text-decoration: none;
+  font-size: 15px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase;
+  color: var(--text-2); transition: color 0.2s, background 0.2s;
+}
+.page .pd { width: 8px; height: 8px; border-radius: 50%; background: var(--pc); box-shadow: 0 0 8px var(--pc); }
+.page:hover { color: var(--text); background: rgba(var(--ink), 0.05); }
+.page.on { color: var(--on-accent); background: var(--accent); box-shadow: 0 0 18px rgba(var(--accent-rgb), 0.35); }
+.page.on .pd { background: var(--on-accent); box-shadow: none; }
+.page kbd { font-family: var(--font-mono); font-size: 12px; font-weight: 600; opacity: 0.7; letter-spacing: 0; }
+.page.on kbd { opacity: 0.85; }
+
+.hud-right { flex: none; display: flex; align-items: center; gap: 10px; }
+.ibtn {
+  width: 36px; height: 36px; border-radius: 8px; border: 1px solid transparent; background: transparent;
+  color: var(--text-3); cursor: pointer; display: grid; place-items: center;
+  transition: color 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+.ibtn svg { width: 62%; height: 62%; }
+.ibtn:hover, .ibtn.on { color: var(--accent); border-color: rgba(var(--accent-rgb), 0.4); box-shadow: 0 0 10px rgba(var(--accent-rgb), 0.22); }
+.ibtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.viz { display: flex; align-items: flex-end; gap: 3px; height: 40px; margin-left: 10px; padding-left: 14px; border-left: 1px solid var(--line); }
+.viz i {
+  display: block; width: 4px; border-radius: 2px; background: var(--accent);
+  box-shadow: 0 0 6px rgba(var(--accent-rgb), 0.5);
+  animation: wave var(--d) ease-in-out infinite alternate; height: var(--lo);
+}
+@keyframes wave { from { height: var(--lo); } to { height: var(--hi); } }
+.progress { position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: rgba(var(--ink), 0.06); }
+.progress span { display: block; height: 100%; width: 37%; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+
+/* ── Deck ─────────────────────────────────────────────────── */
+.deck { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding: 12px 22px 16px; }
+
+.toolbar { flex: none; display: flex; align-items: center; gap: 10px; }
+.filter {
+  flex: 0 1 460px; min-width: 0; display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px 8px 14px; border: 1px solid var(--line-2); border-radius: 8px;
+  background: var(--panel); color: var(--text-3); transition: border-color 0.15s, box-shadow 0.15s;
+}
+.filter:focus-within { border-color: rgba(var(--accent-rgb), 0.7); box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.22); color: var(--accent); }
+.filter svg { width: 18px; height: 18px; flex: none; }
+.filter input {
+  flex: 1 1 auto; min-width: 0; background: transparent; border: 0; outline: 0;
+  font-family: var(--font-display); font-size: 18px; font-weight: 600; letter-spacing: 0.08em;
+  color: var(--text); text-transform: uppercase;
+}
+.filter input::placeholder { color: var(--text-3); }
+.filter .hint { font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.04em; color: var(--text-3); white-space: nowrap; }
+.filter .hint b { color: var(--text-2); font-weight: 600; }
+.toolbar .spacer { flex: 1 1 auto; }
+.tbtn {
+  display: inline-flex; align-items: center; gap: 10px; padding: 8px 14px; white-space: nowrap;
+  border: 1px solid var(--line-2); border-radius: 8px; background: var(--panel);
+  font-family: var(--font-display); font-size: 16px; font-weight: 700; letter-spacing: 0.16em;
+  color: var(--text-2); cursor: pointer; text-transform: uppercase; transition: all 0.15s;
+}
+.tbtn svg { width: 16px; height: 16px; }
+.tbtn:hover { color: var(--accent); border-color: rgba(var(--accent-rgb), 0.6); background: rgba(var(--accent-rgb), 0.08); }
+.tbtn.on { color: var(--cyan); border-color: var(--cyan); background: rgba(var(--cyan-rgb), 0.1); box-shadow: 0 0 12px rgba(var(--cyan-rgb), 0.3); }
+.tbtn.spot:hover, .tbtn.spot.on { color: var(--spotify); border-color: var(--spotify); background: rgba(29, 185, 84, 0.1); box-shadow: 0 0 12px rgba(29, 185, 84, 0.3); }
+.tbtn.cancel:hover { color: var(--error); border-color: var(--error); background: rgba(255, 77, 109, 0.1); }
+.tbtn:focus-visible, .filter input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+kbd.key {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 600; line-height: 1;
+  color: var(--text-3); background: rgba(0, 0, 0, 0.3); border: 1px solid var(--line-2);
+  border-radius: 4px; padding: 4px 6px; letter-spacing: 0; white-space: nowrap;
+}
+body.theme-light kbd.key { background: rgba(255, 255, 255, 0.6); }
+.tbtn:hover kbd.key, .tbtn.on kbd.key, .filter:focus-within kbd.key { color: inherit; border-color: currentColor; }
+
+/* Status rail — what's lit, in one line */
+.rail {
+  flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-height: 44px;
+  padding: 6px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel);
+}
+.rail .lbl {
+  font-family: var(--font-mono); font-size: 14px; font-weight: 600; letter-spacing: 0.18em;
+  color: var(--accent); text-transform: uppercase; margin-right: 6px; white-space: nowrap;
+}
+.rail .lbl .n { display: inline-block; min-width: 26px; text-align: center; padding: 1px 6px; margin-right: 6px; border-radius: 4px; background: var(--accent); color: var(--on-accent); }
+.chip {
+  display: inline-flex; align-items: center; gap: 8px; padding: 5px 8px 5px 12px;
+  border: 1px solid rgba(var(--accent-rgb), 0.5); border-radius: 999px;
+  background: rgba(var(--accent-rgb), 0.1); color: var(--text); font-size: 16px; font-weight: 600;
+  cursor: pointer; transition: all 0.15s; white-space: nowrap;
+}
+.chip .fam { color: var(--text-3); font-weight: 500; }
+.chip .x { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; color: var(--text-3); font-family: var(--font-mono); font-size: 12px; border: 1px solid transparent; }
+.chip:hover { border-color: var(--accent); background: rgba(var(--accent-rgb), 0.18); }
+.chip:hover .x { color: var(--error); border-color: var(--error); }
+.chip.naga { border-color: rgba(var(--violet-rgb), 0.6); background: rgba(var(--violet-rgb), 0.12); }
+.rail .empty { font-size: 17px; color: var(--text-2); }
+.rail .hint { margin-left: auto; font-family: var(--font-mono); font-size: 13px; color: var(--text-3); letter-spacing: 0.04em; white-space: nowrap; }
+
+/* Mode banner — states what a click will do while a mode is armed */
+.banner {
+  flex: none; font-family: var(--font-mono); font-size: 15px; font-weight: 500; letter-spacing: 0.14em;
+  padding: 7px 14px; border: 1px dashed; border-radius: 8px; text-transform: uppercase;
+}
+.banner.edit { color: var(--cyan); border-color: rgba(var(--cyan-rgb), 0.5); background: rgba(var(--cyan-rgb), 0.06); }
+.banner.spotify { color: var(--spotify); border-color: rgba(29, 185, 84, 0.55); background: rgba(29, 185, 84, 0.07); }
+
+/* ── The board ────────────────────────────────────────────── */
+.board {
+  flex: 1 1 auto; min-height: 0;
+  display: grid; grid-auto-flow: column; gap: 7px;
+  grid-template-columns: repeat(var(--cols, 6), minmax(0, 1fr));
+  grid-template-rows: repeat(var(--rows, 11), minmax(0, 1fr));
+}
+.tile {
+  position: relative; min-height: 0; min-width: 0;
+  display: flex; flex-direction: column; justify-content: center; gap: 2px;
+  padding: 6px 44px 6px 14px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel); cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s, opacity 0.2s;
+}
+.tile::before { /* seat number — the fixed address of this tile */
+  content: attr(data-seat); position: absolute; right: 12px; top: 6px;
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; color: var(--text-3); opacity: 0.55;
+}
+.tile:hover { background: rgba(var(--accent-rgb), 0.12); border-color: rgba(var(--accent-rgb), 0.8); box-shadow: 0 0 14px rgba(var(--accent-rgb), 0.18); }
+.tile .fam {
+  font-family: var(--font-mono); font-size: 12.5px; font-weight: 500; letter-spacing: 0.14em;
+  color: var(--text-3); text-transform: uppercase; line-height: 1.25;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere;
+}
+.board.compact .tile .fam { -webkit-line-clamp: 1; white-space: nowrap; }
+.tile .leaf {
+  font-size: 19px; font-weight: 600; line-height: 1.2; color: var(--text);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  overflow-wrap: anywhere; hyphens: none;
+}
+.tile .chk {
+  position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+  width: 22px; height: 22px; opacity: 0; transition: opacity 0.2s;
+}
+.tile .chk svg { width: 100%; height: 100%; fill: #fff; filter: drop-shadow(0 1px 2px rgba(0, 40, 0, 0.5)); }
+.board.compact .tile { flex-direction: row; align-items: center; justify-content: flex-start; gap: 8px; padding-right: 40px; }
+/* Compact rows: the leaf (the part that matters) is always whole; the prefix yields */
+.board.compact .tile .fam { flex: 0 1 auto; min-width: 0; font-size: 12px; letter-spacing: 0.04em; text-overflow: ellipsis; }
+.board.compact .tile .fam::after { content: " /"; }
+.board.compact .tile .leaf { flex: none; max-width: 100%; -webkit-line-clamp: 1; font-size: 17px; }
+.board.compact .tile::before { display: none; }
+
+.tile.on {
+  --a: var(--accent-rgb);
+  background: linear-gradient(135deg, var(--tile-active-top) 0%, var(--tile-active-bot) 100%);
+  border: 2px solid rgb(var(--a));
+  box-shadow: inset 0 0 18px rgba(255, 255, 255, 0.18), 0 0 22px rgba(var(--a), 0.55), 0 0 48px rgba(var(--a), 0.3);
+  animation: breathe 2.4s ease-in-out infinite;
+}
+.tile.on::before { color: rgba(255, 255, 255, 0.75); opacity: 1; }
+.tile.on .fam { color: rgba(255, 255, 255, 0.8); }
+.tile.on .leaf { color: #fff; font-weight: 700; text-shadow: 0 1px 3px rgba(0, 40, 0, 0.45); }
+.tile.on .chk { opacity: 1; }
+.tile.on:hover { box-shadow: inset 0 0 18px rgba(255, 255, 255, 0.28), 0 0 30px rgba(var(--a), 0.8); }
+@keyframes breathe {
+  0%, 100% { box-shadow: inset 0 0 18px rgba(255, 255, 255, 0.18), 0 0 22px rgba(var(--a), 0.55), 0 0 48px rgba(var(--a), 0.3); }
+  50% { box-shadow: inset 0 0 24px rgba(255, 255, 255, 0.26), 0 0 32px rgba(var(--a), 0.85), 0 0 64px rgba(var(--a), 0.45); }
+}
+/* NAGA NEXT SHOW — violet, always recognizable */
+.tile.naga:not(.on) { box-shadow: inset 3px 0 0 rgba(var(--violet-rgb), 0.75); }
+.tile.naga:not(.on):hover { background: rgba(var(--violet-rgb), 0.12); border-color: var(--violet); box-shadow: inset 3px 0 0 var(--violet), 0 0 14px rgba(var(--violet-rgb), 0.25); }
+.tile.naga.on { --a: var(--violet-rgb); background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%); }
+body.theme-light .tile.naga.on { background: linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%); }
+
+/* Filter states: non-matches dim in place — the seats never move */
+.board.filtering .tile:not(.hit) { opacity: 0.16; }
+.board.filtering .tile.hit { border-color: rgba(var(--accent-rgb), 0.6); }
+.board.filtering .tile.top { box-shadow: 0 0 0 2px var(--accent), 0 0 18px rgba(var(--accent-rgb), 0.35); }
+.tile mark { background: rgba(var(--accent-rgb), 0.3); color: inherit; border-radius: 3px; box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.35); }
+.tile.on mark { background: rgba(0, 0, 0, 0.3); box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35); }
+/* Hover a rail chip → its seat rings */
+.tile.spot { box-shadow: 0 0 0 3px var(--cyan), 0 0 24px rgba(var(--cyan-rgb), 0.5) !important; }
+
+/* Modes */
+body.edit-mode .tile { border-style: dashed; border-color: rgba(var(--cyan-rgb), 0.4); }
+body.edit-mode .tile:hover { border-color: var(--cyan); background: rgba(var(--cyan-rgb), 0.08); box-shadow: 0 0 14px rgba(var(--cyan-rgb), 0.18); }
+body.spotify-mode .tile { border-color: rgba(29, 185, 84, 0.45); }
+body.spotify-mode .tile:hover { border-color: var(--spotify); background: rgba(29, 185, 84, 0.12); box-shadow: 0 0 14px rgba(29, 185, 84, 0.25); }
+
+/* Sidebar handle (artist release panel stays as it is today — collapsed here) */
+.side-handle {
+  position: absolute; right: 0; top: 50%; transform: translateY(-50%);
+  width: 30px; height: 64px; border: 1px solid var(--line); border-right: 0; border-radius: 8px 0 0 8px;
+  background: rgba(var(--ink), 0.05); color: var(--text-3); cursor: pointer; display: grid; place-items: center;
+}
+.side-handle:hover { color: var(--accent); border-color: rgba(var(--accent-rgb), 0.5); }
+.side-handle svg { width: 16px; height: 16px; }
+
+/* Entry */
+.tile { animation: enter 0.45s ease-out both; animation-delay: var(--i); }
+.tile.on { animation: enter 0.45s ease-out both, breathe 2.4s ease-in-out infinite 0.45s; }
+@keyframes enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+/* No prefers-reduced-motion fallback ON PURPOSE: Adrian runs macOS Reduce Motion
+   globally but wants his personal apps fully animated (07-29-26). Don't re-add. */
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="hud">
+    <img class="art" id="art" alt="Album cover — Run the World" />
+    <div class="np">
+      <div class="eyebrow"><span class="dot"></span>Now Playing <span class="time">1:12 / 3:12</span></div>
+      <h1 class="title">Run the World</h1>
+      <div class="sub">
+        <span class="artist">Loe Shimmy, Brent Faiyaz</span>
+        <span class="meta">Single · 08-21-26 · <b>E</b> · Popularity 71 · <span class="liked">♥ Liked</span></span>
+      </div>
+    </div>
+    <nav class="pages" aria-label="Pages">
+      <a class="page on" href="#" style="--pc:#84ff00"><span class="pd"></span>Playlists<kbd>⌘1</kbd></a>
+      <a class="page" href="#" style="--pc:#bc13fe"><span class="pd"></span>Tracker<kbd>⌘2</kbd></a>
+      <a class="page" href="#" style="--pc:#ff8c00"><span class="pd"></span>Queue<kbd>⌘3</kbd></a>
+    </nav>
+    <div class="hud-right">
+      <button class="ibtn on" type="button" aria-label="Sidebar auto-reveal" title="Sidebar reveals itself on add — click to stop that">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+      </button>
+      <button class="ibtn" type="button" id="theme" aria-label="Switch to Daybreak" title="Daybreak (light) — ⌘⇧L">
+        <svg id="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></svg>
+      </button>
+      <button class="ibtn" type="button" aria-label="Repeat one" title="Repeat this track">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+      </button>
+      <div class="viz" id="viz" aria-hidden="true"></div>
+    </div>
+    <div class="progress"><span></span></div>
+  </header>
+
+  <main class="deck">
+    <div class="toolbar">
+      <label class="filter">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input id="q" type="text" placeholder="Filter playlists" autocomplete="off" spellcheck="false" aria-label="Filter playlists by name" />
+        <span class="hint"><b>⏎</b> toggles top match</span>
+        <kbd class="key">F</kbd>
+      </label>
+      <span class="spacer"></span>
+      <button class="tbtn" type="button">＋ New<kbd class="key">N</kbd></button>
+      <button class="tbtn" type="button" id="edit">✎ Edit<kbd class="key">E</kbd></button>
+      <button class="tbtn cancel" type="button" id="cancel" hidden>✕ Cancel<kbd class="key">C</kbd></button>
+      <button class="tbtn spot" type="button" id="spot"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.586 14.424a.622.622 0 0 1-.857.207c-2.348-1.435-5.304-1.76-8.785-.964a.622.622 0 1 1-.277-1.215c3.809-.87 7.077-.496 9.712 1.115.293.18.386.563.207.857zm1.223-2.723a.78.78 0 0 1-1.072.257c-2.687-1.652-6.785-2.131-9.965-1.166A.779.779 0 1 1 6.32 11.3c3.632-1.102 8.147-.568 11.234 1.328a.78.78 0 0 1 .255 1.073zm.105-2.835C14.692 8.95 9.375 8.775 6.297 9.71a.935.935 0 1 1-.543-1.79c3.532-1.072 9.404-.865 13.115 1.338a.936.936 0 0 1-.955 1.608z"/></svg>Spotify<kbd class="key">S</kbd></button>
+      <button class="tbtn" type="button" aria-label="Settings" title="Settings — ⌘,"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M18 14h.01M9 14h6"/></svg></button>
+    </div>
+
+    <div class="rail" id="rail"></div>
+    <div class="banner" id="banner" hidden></div>
+    <div class="board" id="board"></div>
+  </main>
+
+  <button class="side-handle" type="button" aria-label="Open artist sidebar" title="Artist's latest release — ⌘S">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+  </button>
+</div>
+
+<script>
+// ── Mock data: the real Playlists-page names from config.json ──
+const NAMES = ["Adults NSFW","Album Cuts","Beats  🥁","Best Hip Hop  🏆 Best","Best Hip Hop  🏆 Faves","Best Hip Hop  🏆 Faves & Best","Best Pack Hour 🏆","Best Pop 🏆 Faves","Best R&B 🏆 Best","Best R&B 🏆 Faves","Best R&B 🏆 Faves & Best","BIG TUNEZ 💥💣📈","BZZZ___R&B","Cali 🌴","Chickens 🐔","CLUB #OBFH/ Metaverse","CLUB #OBFH/_","CLUB #OBFH/Slow","CLUB #OBFH/Trappin","Club #OBFH/Trappin/Slow","DX/Pack Hour","DX/Pack Hour/Slow","DX/TikTok in da Metaverse/_","DX/TikTok in da Metaverse/Slow","DX/Trappin","DX/Trappin/Slow","Features","Female","Granola Backpack","Interludes","Jersey","Late Night/UK Drill","Late Night/_","Late Night/420 Ridazzz","Late Night/ALL","Late Night/Cali","Late Night/Granola Backpack","Late Night/LA 🌴☀️","Late Night/Metaverse/_","Late Night/Pack Hour","Late Night/R&B","Late Night/Sexy Drill","Late Night/South","Late Night/Texas 🌵","Late Night/Trappin","Late Night/West Coast","Midwest","NAGA NEXT SHOW ▶️","NAGA NEXT SHOW - PACK","NYC","Punchlines 🥊","Rains in da Metaverse","Reggae 🇯🇲","Remix - TO REMIX","Sample Flips","Sexy Drill","Snap ViRaL","Thug Luv","Trappin/Metaverse/Slow","UK Drill","Ultra Combo","ViRaL 🦠","ViRaL 🦠 Trappin","2000s Retro Throwback","90s Throwback","To Sample 💿"];
+const ACTIVE = new Set(["Best R&B 🏆 Faves","Late Night/ALL","Chickens 🐔","Thug Luv","BZZZ___R&B"]);
+const sorted = NAMES.slice().sort((a, b) => a.localeCompare(b));
+const isNaga = (n) => n.toUpperCase().includes("NAGA NEXT SHOW");
+const split = (n) => { const p = n.split("/"); return p.length > 1 ? { fam: p.slice(0, -1).join(" / ").trim(), leaf: p[p.length - 1].trim() } : { fam: "", leaf: n }; };
+
+// Album art (abstract SVG stand-in for the Spotify artwork)
+const ART = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><defs><radialGradient id='a' cx='28%' cy='26%' r='85%'><stop offset='0' stop-color='#ff8a4c'/><stop offset='.5' stop-color='#b3186f'/><stop offset='1' stop-color='#140612'/></radialGradient></defs><rect width='200' height='200' fill='url(#a)'/><circle cx='142' cy='66' r='40' fill='none' stroke='#ffd9a0' stroke-width='1.5' opacity='.85'/><circle cx='142' cy='66' r='22' fill='#ffe9c8' opacity='.9'/><path d='M0 152 Q60 112 100 152 T200 152' fill='none' stroke='#ffe0c2' stroke-width='2.5' opacity='.75'/><path d='M0 168 Q60 128 100 168 T200 168' fill='none' stroke='#ffe0c2' stroke-width='1.5' opacity='.45'/><text x='14' y='186' font-family='Helvetica,Arial' font-size='13' font-weight='700' fill='#fff2e8' letter-spacing='3'>RUN THE WORLD</text></svg>`;
+document.getElementById("art").src = "data:image/svg+xml;utf8," + encodeURIComponent(ART);
+
+// Visualizer bars
+const viz = document.getElementById("viz");
+for (let i = 0; i < 22; i++) { const b = document.createElement("i"); b.style.setProperty("--lo", (6 + Math.random() * 10) + "px"); b.style.setProperty("--hi", (18 + Math.random() * 22) + "px"); b.style.setProperty("--d", (0.55 + Math.random() * 0.6).toFixed(2) + "s"); viz.appendChild(b); }
+
+// Theme (dark default; Daybreak on ⌘⇧L / the sun button)
+const SUN = '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>';
+const MOON = '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>';
+function applyTheme(t) { document.body.classList.toggle("theme-light", t === "light"); document.getElementById("theme-icon").innerHTML = t === "light" ? MOON : SUN; document.getElementById("theme").setAttribute("aria-label", t === "light" ? "Switch to Phosphor" : "Switch to Daybreak"); try { localStorage.setItem("mockTheme", t); } catch (e) {} }
+let theme = "dark"; try { theme = localStorage.getItem("mockTheme") || "dark"; } catch (e) {}
+if (location.hash === "#light") theme = "light"; if (location.hash === "#dark") theme = "dark";
+applyTheme(theme);
+document.getElementById("theme").onclick = () => applyTheme(document.body.classList.contains("theme-light") ? "dark" : "light");
+
+// Board: fixed seats, lit in place
+const board = document.getElementById("board");
+const tiles = new Map();
+sorted.forEach((name, i) => {
+  const t = document.createElement("div");
+  const { fam, leaf } = split(name);
+  t.className = "tile" + (ACTIVE.has(name) ? " on" : "") + (isNaga(name) ? " naga" : "");
+  t.dataset.seat = String(i + 1).padStart(2, "0");
+  t.dataset.name = name;
+  t.style.setProperty("--i", Math.min(i * 10, 420) + "ms");
+  t.innerHTML = (fam ? `<span class="fam">${fam}</span>` : "") + `<span class="leaf">${leaf}</span><span class="chk"><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></span>`;
+  t.title = (ACTIVE.has(name) ? "Remove this track from " : "Add this track to ") + name;
+  t.onclick = () => toggle(name);
+  board.appendChild(t); tiles.set(name, t);
+});
+function toggle(name) { if (ACTIVE.has(name)) ACTIVE.delete(name); else ACTIVE.add(name); const t = tiles.get(name); t.classList.toggle("on", ACTIVE.has(name)); t.title = (ACTIVE.has(name) ? "Remove this track from " : "Add this track to ") + name; renderRail(); }
+
+function layout() {
+  const w = board.clientWidth, h = board.clientHeight, n = sorted.length;
+  const cols = Math.max(3, Math.min(6, Math.floor(w / 290)));
+  const rows = Math.ceil(n / cols);
+  board.style.setProperty("--cols", cols); board.style.setProperty("--rows", rows);
+  const rowH = (h - (rows - 1) * 7) / rows;
+  board.classList.toggle("compact", rowH < 58);
+}
+new ResizeObserver(layout).observe(board); layout();
+
+// Status rail
+const rail = document.getElementById("rail");
+function renderRail() {
+  const on = sorted.filter((n) => ACTIVE.has(n));
+  rail.innerHTML = `<span class="lbl"><span class="n">${on.length}</span>In playlists</span>`;
+  if (!on.length) rail.insertAdjacentHTML("beforeend", `<span class="empty">Not saved anywhere yet — click a seat to add it.</span>`);
+  on.forEach((n) => {
+    const { fam, leaf } = split(n);
+    const c = document.createElement("span");
+    c.className = "chip" + (isNaga(n) ? " naga" : ""); c.setAttribute("role", "button"); c.tabIndex = 0;
+    c.title = "Remove this track from " + n;
+    c.innerHTML = (fam ? `<span class="fam">${fam} /</span>` : "") + `<span>${leaf}</span><span class="x">✕</span>`;
+    c.onmouseenter = () => tiles.get(n).classList.add("spot"); c.onmouseleave = () => tiles.get(n).classList.remove("spot");
+    c.onclick = () => { tiles.get(n).classList.remove("spot"); toggle(n); };
+    c.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); c.click(); } };
+    rail.appendChild(c);
+  });
+  rail.insertAdjacentHTML("beforeend", `<span class="hint">hover a chip to find its seat · click to remove</span>`);
+}
+renderRail();
+
+// Filter: dim non-matches in place, ⏎ toggles the top match
+const q = document.getElementById("q");
+const norm = (s) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+function applyFilter() {
+  const terms = norm(q.value).split(/\s+/).filter(Boolean);
+  board.classList.toggle("filtering", terms.length > 0);
+  let top = null;
+  sorted.forEach((n) => {
+    const t = tiles.get(n); const hit = terms.length && terms.every((w) => norm(n).includes(w));
+    t.classList.toggle("hit", !!hit); t.classList.remove("top");
+    const leafEl = t.querySelector(".leaf"), famEl = t.querySelector(".fam");
+    const { fam, leaf } = split(n);
+    leafEl.innerHTML = hit ? mark(leaf, terms) : leaf; if (famEl) famEl.innerHTML = hit ? mark(fam, terms) : fam;
+    if (hit && !top) top = t;
+  });
+  if (top) top.classList.add("top");
+}
+function mark(text, terms) { let out = text; terms.forEach((w) => { const i = norm(out).indexOf(w); if (i >= 0) out = out.slice(0, i) + "<mark>" + out.slice(i, i + w.length) + "</mark>" + out.slice(i + w.length); }); return out; }
+q.addEventListener("input", applyFilter);
+q.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { const top = board.querySelector(".tile.top"); if (top) toggle(top.dataset.name); }
+  if (e.key === "Escape") { q.value = ""; applyFilter(); q.blur(); }
+});
+
+// Modes (visual only)
+let mode = null;
+const banner = document.getElementById("banner");
+function setMode(m) {
+  mode = mode === m ? null : m;
+  document.body.classList.toggle("edit-mode", mode === "edit"); document.body.classList.toggle("spotify-mode", mode === "spotify");
+  document.getElementById("edit").classList.toggle("on", mode === "edit"); document.getElementById("spot").classList.toggle("on", mode === "spotify");
+  document.getElementById("cancel").hidden = !mode;
+  banner.hidden = !mode; banner.className = "banner " + (mode || "");
+  banner.textContent = mode === "edit" ? "Edit mode — click a seat to rename it or change its Spotify playlist · ✕ removes it from this page" : mode === "spotify" ? "Spotify mode — click a seat to open that playlist in the Spotify app" : "";
+}
+document.getElementById("edit").onclick = () => setMode("edit");
+document.getElementById("spot").onclick = () => setMode("spotify");
+document.getElementById("cancel").onclick = () => setMode(mode);
+
+document.addEventListener("keydown", (e) => {
+  const typing = document.activeElement === q;
+  if (e.metaKey && e.shiftKey && e.key.toLowerCase() === "l") { e.preventDefault(); document.getElementById("theme").click(); return; }
+  if (typing) return;
+  if (e.key === "f" || e.key === "/" || (e.metaKey && e.key === "f")) { e.preventDefault(); q.focus(); q.select(); }
+  else if (e.key === "e") setMode("edit"); else if (e.key === "s" && !e.metaKey) setMode("spotify");
+  else if (e.key === "c" || e.key === "Escape") { if (mode) setMode(mode); }
+});
+
+// ── Headless audit hook (?audit): writes layout metrics into <title>; no visible effect ──
+if (location.search.includes("audit")) {
+  const run = () => {
+    const W = innerWidth, H = innerHeight, sel = ".tile, .row, .pill, .card, .chip, .release";
+    const els = [...document.querySelectorAll(sel)];
+    const esc = [], clip = [];
+    els.forEach((el) => {
+      const r = el.getBoundingClientRect();
+      if (r.right > W + 1 || r.bottom > H + 1 || r.left < -1 || r.top < -1) esc.push(el.className + "@" + Math.round(r.right) + "," + Math.round(r.bottom));
+      [".leaf", ".name", ".fam"].forEach((s) => { const t = el.querySelector(s); if (t && t.scrollHeight > t.clientHeight + 2) clip.push(t.textContent.trim()); });
+      if (el.matches(".pill, .chip") && el.scrollWidth > el.clientWidth + 1) clip.push("W:" + el.textContent.trim());
+    });
+    const scrollers = [...document.querySelectorAll("*")].filter((e) => { const cs = getComputedStyle(e); return /auto|scroll/.test(cs.overflowY) && e.scrollHeight > e.clientHeight + 1; }).map((e) => e.className || e.tagName);
+    document.title = JSON.stringify({ size: [W, H], doc: [document.documentElement.scrollWidth, document.documentElement.scrollHeight], els: els.length, escapes: esc.slice(0, 6), escapeCount: esc.length, clipped: clip.slice(0, 8), clipCount: clip.length, scrollers });
+  };
+  (document.fonts ? document.fonts.ready : Promise.resolve()).then(() => setTimeout(run, 700));
+}
+</script>
+</body>
+</html>

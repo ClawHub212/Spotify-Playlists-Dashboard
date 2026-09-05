@@ -1,6 +1,10 @@
 import Cocoa
 import WebKit
 
+/// The name the user sees (window title, app menu). Read from CFBundleName so a
+/// rename is a plist-only change — v1 became "Spotify Dashboard (old)" on 09-05-26.
+let appDisplayName = (Bundle.main.infoDictionary?["CFBundleName"] as? String) ?? "Spotify Dashboard (old)"
+
 class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Properties
@@ -352,7 +356,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             defer: false
         )
 
-        mainWindow.title = "Spotify Dashboard"
+        mainWindow.title = appDisplayName
         mainWindow.level = isFloatOnTop ? .floating : .normal
         mainWindow.isReleasedWhenClosed = false
         mainWindow.delegate = self
@@ -472,7 +476,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // App menu
         let appMenuItem = NSMenuItem()
         let appMenu = NSMenu()
-        let aboutItem = NSMenuItem(title: "About Spotify Dashboard",
+        let aboutItem = NSMenuItem(title: "About \(appDisplayName)",
                                    action: #selector(showAboutPanel),
                                    keyEquivalent: "")
         aboutItem.target = self
@@ -480,9 +484,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         appMenu.addItem(NSMenuItem.separator())
         appMenu.addItem(withTitle: "Settings...", action: #selector(openSettings), keyEquivalent: ",")
         appMenu.addItem(NSMenuItem.separator())
-        appMenu.addItem(withTitle: "Hide Spotify Dashboard", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenu.addItem(withTitle: "Hide \(appDisplayName)", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         appMenu.addItem(NSMenuItem.separator())
-        appMenu.addItem(withTitle: "Quit Spotify Dashboard", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: "Quit \(appDisplayName)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appMenuItem.submenu = appMenu
         mainMenu.addItem(appMenuItem)
 
@@ -644,7 +648,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func buildAboutWindow() -> NSWindow {
         let info = Bundle.main.infoDictionary ?? [:]
-        let appName = (info["CFBundleName"] as? String) ?? "Spotify Dashboard"
+        let appName = (info["CFBundleName"] as? String) ?? appDisplayName
         let shortVersion = info["CFBundleShortVersionString"] as? String ?? ""
         let displayVersion = (info["SpotifyDashboardVersionDisplay"] as? String)
             ?? (info["CFBundleVersion"] as? String ?? "")

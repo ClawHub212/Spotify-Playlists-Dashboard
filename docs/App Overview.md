@@ -142,7 +142,7 @@ The **Dashboard Name** (or **Name**) is the short label shown in the UI. The **S
 
 ## Native Desktop App (v1.0.1)
 
-The app is now wrapped as a native macOS application (`Spotify Dashboard.app`) for better integration:
+The app is now wrapped as a native macOS application (`Spotify Dashboard (old).app`) for better integration:
 
 - 🖥️ **Dock & App Switcher Support**: Proper app icon and process management.
 - ⌨️ **Global Hotkeys**: Supports system-wide shortcuts.
@@ -151,7 +151,7 @@ The app is now wrapped as a native macOS application (`Spotify Dashboard.app`) f
 ### Running the App
 
 **Option 1: Native App (Recommended)**
-Double-click `Spotify Dashboard.app` in the `desktop/SpotifyDashboard/build/` folder, or run:
+Double-click `Spotify Dashboard (old).app` in the `desktop/SpotifyDashboard/build/` folder, or run:
 
 ```bash
 ./desktop/run.sh
@@ -184,19 +184,19 @@ Each command works as a smart toggle:
 **Toggle Playlists Page**
 
 ```applescript
-tell application "Spotify Dashboard" to toggle page "playlist"
+tell application "Spotify Dashboard (old)" to toggle page "playlist"
 ```
 
 **Toggle Tracker Page**
 
 ```applescript
-tell application "Spotify Dashboard" to toggle page "tracker"
+tell application "Spotify Dashboard (old)" to toggle page "tracker"
 ```
 
 **Toggle Queue Page**
 
 ```applescript
-tell application "Spotify Dashboard" to toggle page "queue"
+tell application "Spotify Dashboard (old)" to toggle page "queue"
 ```
 
 ### Explicit Control
@@ -205,8 +205,8 @@ You can also use `show page` and `hide app` separately if you want explicit cont
 
 ```applescript
 -- Show only (never hides)
-tell application "Spotify Dashboard" to show page "playlist"
+tell application "Spotify Dashboard (old)" to show page "playlist"
 
 -- Hide only (never shows)
-tell application "Spotify Dashboard" to hide app
+tell application "Spotify Dashboard (old)" to hide app
 ```

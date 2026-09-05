@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDisplayName</key>
-	<string>Spotify Dashboard</string>
+	<string>Spotify Dashboard (old)</string>
 	<key>CFBundleExecutable</key>
 	<string>SpotifyDashboard</string>
 	<key>CFBundleIconFile</key>
@@ -13,11 +13,11 @@
 	<key>CFBundleIdentifier</key>
 	<string>com.spotifydashboard.app</string>
 	<key>CFBundleName</key>
-	<string>Spotify Dashboard</string>
+	<string>Spotify Dashboard (old)</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.4.0</string>
+	<string>1.4.1</string>
 	<key>CFBundleSignature</key>
 	<string>SPDH</string>
 	<key>CFBundleVersion</key>

@@ -1,7 +1,7 @@
 import Cocoa
 
 // MARK: - Show Page Command
-// AppleScript: tell application "Spotify Dashboard" to show page "playlist"
+// AppleScript: tell application "Spotify Dashboard (old)" to show page "playlist"
 
 class ShowPageCommand: NSScriptCommand {
     override func performDefaultImplementation() -> Any? {
@@ -22,7 +22,7 @@ class ShowPageCommand: NSScriptCommand {
 }
 
 // MARK: - Hide App Command
-// AppleScript: tell application "Spotify Dashboard" to hide app
+// AppleScript: tell application "Spotify Dashboard (old)" to hide app
 
 class HideAppCommand: NSScriptCommand {
     override func performDefaultImplementation() -> Any? {
@@ -36,7 +36,7 @@ class HideAppCommand: NSScriptCommand {
 }
 
 // MARK: - Toggle Page Command
-// AppleScript: tell application "Spotify Dashboard" to toggle page "tracker"
+// AppleScript: tell application "Spotify Dashboard (old)" to toggle page "tracker"
 
 class TogglePageCommand: NSScriptCommand {
     override func performDefaultImplementation() -> Any? {

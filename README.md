@@ -106,7 +106,7 @@ Open `http://127.0.0.1:8888` in your browser. On first run you'll be redirected 
 | **Platform** | **Command** | **Notes** |
 | ------------ | ----------- | --------- |
 | Web | `python3 app.py` | Open `http://127.0.0.1:8888` |
-| macOS wrapper | `open "desktop/SpotifyDashboard/build/Spotify Dashboard.app"` | Build the Xcode project first |
+| macOS wrapper | `open "desktop/SpotifyDashboard/build/Spotify Dashboard (old).app"` | Build the Xcode project first |
 
 ---
 

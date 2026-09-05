@@ -9,7 +9,7 @@ The python backend often detaches into a ghost process if the macOS Swift applic
 
 // turbo-all
 1. Forcefully kill the Swift wrapper app. The process name is the executable
-   basename `SpotifyDashboard` (no space) — `killall "Spotify Dashboard"` matches
+   basename `SpotifyDashboard` (no space) — `killall "Spotify Dashboard (old)"` matches
    nothing.
 ```bash
 killall SpotifyDashboard
@@ -22,5 +22,5 @@ lsof -i :8888 -t | xargs kill -9
 
 3. Open the compiled Desktop application (installed in /Applications by build.sh).
 ```bash
-open "/Applications/Spotify Dashboard.app"
+open "/Applications/Spotify Dashboard (old).app"
 ```

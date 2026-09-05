@@ -5,7 +5,7 @@
 > (private, under `BoltHub973`). If it lives beside the current app, keep the old app
 > untouched and runnable until v2 reaches parity.
 >
-> Written 09-04-26 from the v1 codebase at `~/Development/Spotify Dashboard`.
+> Written 09-04-26 from the v1 codebase, now retired as `~/Development/Spotify Dashboard (old)` (repo `BoltHub973/Spotify-Dashboard-old`, app `Spotify Dashboard (old).app`). The new app takes the plain `Spotify Dashboard` name, folder and `/Applications/Spotify Dashboard.app` path — the Keyboard Maestro launchers already point there.
 
 ---
 
@@ -189,7 +189,7 @@ Ask me these **before** writing code:
 1. New repo, or a `v2/` tree beside v1?
 2. Swift daemon (recommended) or keep Python for the daemon?
 3. App name + bundle-ID prefix for v2 (v1 is `com.spotifydashboard.app`,
-   `/Applications/Spotify Dashboard.app` — v2 must not collide).
+   now installed as `/Applications/Spotify Dashboard (old).app` — v2 takes `/Applications/Spotify Dashboard.app` and needs its own bundle ID, or v1's must change).
 
 ---
 
